@@ -14,3 +14,9 @@ library(tidycensus)
 library(tidyverse)
 library(dplyr)
 ```
+
+```{r load_data, cache = TRUE}
+palette5 <- c("#264653","#2a9d8f","#e9c46a",'#f4a261',"#e76f51")
+palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
+palette2 <- c("#264653","#2a9d8f")
+```

@@ -13,10 +13,18 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidycensus)
 library(tidyverse)
 library(dplyr)
+library(sf)
+library(ggplot2)
 ```
 
 ```{r load_data, cache = TRUE}
 palette5 <- c("#264653","#2a9d8f","#e9c46a",'#f4a261',"#e76f51")
 palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
+```
+
+```{r}
+stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Stations/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson")
+
+delay_df <- read.csv('')
 ```

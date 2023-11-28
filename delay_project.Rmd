@@ -5,6 +5,8 @@ date: "2023-11-25"
 output: html_document
 ---
 
+# Introduction
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -41,6 +43,7 @@ library(gganimate)
 library(gifski)
 library(purrr)
 library(geosphere)
+library(googlesheets4)
 
 plotTheme <- theme(
   plot.title =element_text(size=12),
@@ -57,7 +60,7 @@ plotTheme <- theme(
   panel.grid.major=element_line(colour="#D0D0D0",size=.2),
   axis.ticks=element_blank())
 
-mapTheme <- theme(plot.title =element_text(size=12),
+mapTheme <- theme(plot.title =element_text(size=10),
                   plot.subtitle = element_text(size=8),
                   plot.caption = element_text(size = 6),
                   axis.line=element_blank(),
@@ -76,18 +79,15 @@ mapTheme <- theme(plot.title =element_text(size=12),
                   legend.key.height = unit(1, "cm"), legend.key.width = unit(0.2, "cm"))
 
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
-```
 
-```{r load_data, cache = TRUE}
 palette5 <- c("#264653","#2a9d8f","#e9c46a",'#f4a261',"#e76f51")
 palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
 ```
 
-#Data Wrangling & Explotory Analysis
-## Train Data
-
-
+#Data Wrangling & Exploratory Analysis
+## Data Load & Wrangling
+### NJ Transit Delay Data
 
 ```{r}
 stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Stations/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson") %>%
@@ -99,7 +99,8 @@ stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/servi
   dplyr::select(STATION_ID,LATITUDE,LONGITUDE,line_intersct)%>%
   st_drop_geometry()
 
-delay_df <- read.csv('D://00Penn-学习/MUSA508/musa_5080_2023-main/Final_Delayed_Time_Prediction/data/2019_11.csv')%>%
+id <- '1V_kl3QKOxrTlwA8UG7kdv_VpJdaojKMj'
+delay_df <- read.csv(sprintf("https://docs.google.com/uc?id=%s&export=download", id))%>%
   filter((type == 'NJ Transit')&(line == 'Northeast Corrdr'))%>%
   na.omit()
 
@@ -124,10 +125,10 @@ merged_dataset <- merged_dataset%>%
          weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
 ```
 
-## Weather Data
+### Weather Data
 ```{r import_weather, warning=FALSE}
 weather.Panel <- 
-  riem_measures(station = "EWR", date_start = "2019-11-01", date_end = "2019-11-30") %>%
+  riem_measures(station = "EWR", date_start = "2019-10-01", date_end = "2019-11-02") %>%
   dplyr::select(valid, tmpf, p01i, sknt)%>%
   replace(is.na(.), 0) %>%
     mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
@@ -142,18 +143,7 @@ weather.Panel <-
 glimpse(weather.Panel)
 ```
 
-```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
-grid.arrange(
-  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#264653") + 
-  labs(title="Percipitation", x="Hour", y="Perecipitation") + plotTheme(),
-  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#264653") + 
-    labs(title="Wind Speed", x="Hour", y="Wind Speed") + plotTheme(),
-  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#264653") + 
-    labs(title="Temperature", x="Hour", y="Temperature") + plotTheme(),
-  top="Weather Data - NJ EWR - Nov, 2019")
-```
-
-## Census Data
+### Census Data
 
 ```{r get_census, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
 NJCensus <- 
@@ -181,6 +171,10 @@ NJCensus <-
   mutate(Percent_White = White_Pop / Total_Pop,
          Mean_Commute_Time = Travel_Time / Total_Public_Trans,
          Percent_Taking_Public_Trans = Total_Public_Trans / Means_of_Transport)
+
+NJCensus_select <- NJCensus%>%
+  mutate(bigcity = ifelse(Total_Pop >= 6000, 'big city','small city'))%>%
+  select(geometry, Total_Pop,bigcity, GEOID)
 ```
 
 ```{r extract_geometries, include=FALSE}
@@ -220,9 +214,21 @@ train_census <- train_census %>%
          to_lat = unlist(map(geometry, 2)))%>%
   as.data.frame() %>%
   select(-geometry)
+
+train_dataset <-train_census  %>%
+  left_join(weather.Panel, by ="interval60")
+
+merged_dataset <- train_dataset  %>%
+  left_join(NJCensus_select, by = c("From.Tract" = "GEOID")) %>%
+  left_join(NJCensus_select, by =c("To.Tract"="GEOID")) %>%
+  select(-geometry.x,-geometry.y) %>%
+  rename(From_Total_Pop = Total_Pop.x,
+         To_Total_Pop = Total_Pop.y,
+         From_city = bigcity.x,
+         To_city = bigcity.y)
 ```
 
-
+## Exploratory Analysis
 ```{r trip_timeseries, echo=FALSE, fig.height=4, fig.width=4}
 ggplot(stop)+
   geom_sf(data = NJTracts)+
@@ -235,20 +241,100 @@ ggplot(stop)+
   theme(legend.position = "bottom")
 ```
 
-```{r weather_train_join}
-train_dataset <-train_census  %>%
-  left_join(weather.Panel, by ="interval60")
+```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
+grid.arrange(
+  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#264653") + 
+  labs(title="Percipitation", x="Hour", y="Perecipitation") + plotTheme(),
+  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#264653") + 
+    labs(title="Wind Speed", x="Hour", y="Wind Speed") + plotTheme(),
+  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#264653") + 
+    labs(title="Temperature", x="Hour", y="Temperature") + plotTheme(),
+  top="Weather Data - NJ EWR - Nov, 2019")
 ```
 
-```{r census_train_join}
-NJCensus_select <- NJCensus%>%
-  select(geometry, Total_Pop, GEOID)
+```{r delay analysis}
+delay_time <- merged_dataset %>%
+  group_by(time_of_day)%>%
+  summarize(mean_delay = mean(delay_minutes))
 
-train_dataset <- train_dataset  %>%
-  left_join(NJCensus_select, by = c("From.Tract" = "GEOID")) %>%
-  left_join(NJCensus_select, by =c("To.Tract"="GEOID")) %>%
-  select(-geometry.x,-geometry.y) %>%
-  rename(From_Total_Pop = Total_Pop.x,
-         To_Total_Pop = Total_Pop.y)
+delay_day <- merged_dataset %>%
+  group_by(dotw)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_week <- merged_dataset %>%
+  group_by(weekend)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_hour <- merged_dataset %>%
+  group_by(hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_sequence <- merged_dataset %>%
+  group_by(stop_sequence)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_distance <- merged_dataset %>%
+  group_by(distance)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct_t <- merged_dataset %>%
+  group_by(to_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct_f <-merged_dataset %>%
+  group_by(from_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
 ```
 
+```{r map visualization}
+map_from <- merged_dataset %>%
+  group_by(from)%>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'from')%>%
+  rename(station = from)
+
+map_to <- merged_dataset %>%
+  group_by(to)%>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  left_join(stop,by=c('to'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'to')%>%
+  rename(station = to)
+
+ggplot() +
+  geom_sf(data = NJTracts, color = 'grey') + 
+  geom_sf(data = rbind(map_from,map_to), aes(size = mean_delay,color = mean_delay), alpha = 0.5) +
+  scale_colour_viridis(direction = -1,discrete = FALSE, option = "D")+
+  scale_size_continuous(name = "Delay Minutes") +
+  coord_sf()+
+  labs(title="Delayed Time in Station as Start, October, 2019")+
+  facet_grid(~status)
+  mapTheme()
+```
+
+```{r delay analysis combine}
+delay_stop_time <- merged_dataset %>%
+  group_by(from,to,hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_week_hour <- merged_dataset %>%
+  group_by(weekend,hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct_week_f <-merged_dataset %>%
+  group_by(from_inter,weekend)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct_week_t <-merged_dataset %>%
+  group_by(to_inter,weekend)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+ggplot(delay_week_hour)+
+     geom_freqpoly(aes(mean_delay, color = weekend), binwidth = 1)+
+  labs(title="Delayed Time in Northeast Corridor - weekend vs weekday, October, 2019",
+       x="Hour of the Day", 
+       y="Mean Delay time")
+```

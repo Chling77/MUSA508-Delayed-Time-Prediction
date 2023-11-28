@@ -40,6 +40,42 @@ library(vtable)
 library(gganimate)
 library(gifski)
 library(purrr)
+library(geosphere)
+
+plotTheme <- theme(
+  plot.title =element_text(size=12),
+  plot.subtitle = element_text(size=8),
+  plot.caption = element_text(size = 6),
+  axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+  axis.text.y = element_text(size = 10),
+  axis.title.y = element_text(size = 10),
+  # Set the entire chart region to blank
+  panel.background=element_blank(),
+  plot.background=element_blank(),
+  #panel.border=element_rect(colour="#F0F0F0"),
+  # Format the grid
+  panel.grid.major=element_line(colour="#D0D0D0",size=.2),
+  axis.ticks=element_blank())
+
+mapTheme <- theme(plot.title =element_text(size=12),
+                  plot.subtitle = element_text(size=8),
+                  plot.caption = element_text(size = 6),
+                  axis.line=element_blank(),
+                  axis.text.x=element_blank(),
+                  axis.text.y=element_blank(),
+                  axis.ticks=element_blank(),
+                  axis.title.x=element_blank(),
+                  axis.title.y=element_blank(),
+                  panel.background=element_blank(),
+                  panel.border=element_blank(),
+                  panel.grid.major=element_line(colour = 'transparent'),
+                  panel.grid.minor=element_blank(),
+                  legend.direction = "vertical", 
+                  legend.position = "right",
+                  plot.margin = margin(1, 1, 1, 1, 'cm'),
+                  legend.key.height = unit(1, "cm"), legend.key.width = unit(0.2, "cm"))
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 ```
 
 ```{r load_data, cache = TRUE}
@@ -48,21 +84,171 @@ palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
 ```
 
+#Data Wrangling & Explotory Analysis
+## Train Data
+
+
+
 ```{r}
 stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Stations/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson") %>%
   mutate(STATION_ID = ifelse(STATION_ID == 'Atlantic City', 'Atlantic City Rail Terminal', STATION_ID),
-         STATION_ID = ifelse((STATION_ID == 'Middletown')&(COUNTY == 'Orange,NY'), 'Atlantic City Rail Terminal', STATION_ID))%>%
-  dplyr::select(STATION_ID,LATITUDE,LONGITUDE)%>%
+         STATION_ID = ifelse((STATION_ID == 'Middletown')&(COUNTY == 'Orange,NY'), 'Atlantic City Rail Terminal', STATION_ID),
+         STATION_ID = ifelse(STATION_ID == 'Princeton Jct.', 'Princeton Junction', STATION_ID),
+         STATION_ID = ifelse(STATION_ID == 'Secaucus Junction Upper Level', 'Secaucus Upper Lvl', STATION_ID),
+         line_intersct = str_count(RAIL_SERVICE, ",") + 1)%>%
+  dplyr::select(STATION_ID,LATITUDE,LONGITUDE,line_intersct)%>%
   st_drop_geometry()
 
-delay_df <- read.csv('/Users/mr.smile/Desktop/UPENN/FALL23/MUSA508/musa_5080_2023-main/final_project/dataset/2020_03.csv')
+delay_df <- read.csv('D://00Penn-学习/MUSA508/musa_5080_2023-main/Final_Delayed_Time_Prediction/data/2019_11.csv')%>%
+  filter((type == 'NJ Transit')&(line == 'Northeast Corrdr'))%>%
+  na.omit()
 
 merged_dataset <- merge(delay_df, stop, by.x = "from", by.y = "STATION_ID",all.x = TRUE)
 merged_dataset <- merge(merged_dataset, stop, by.x = "to", by.y = "STATION_ID",all.x = TRUE)
 merged_dataset <- merged_dataset%>%
   rename(from_lat = LATITUDE.x,
          from_lon = LONGITUDE.x,
+         from_inter = line_intersct.x,
          to_lat = LATITUDE.y,
-         to_lon = LONGITUDE.y
-         )
+         to_lon = LONGITUDE.y,
+         to_inter = line_intersct.y
+         )%>%
+  mutate(distance = distHaversine(cbind(from_lon, from_lat), cbind(to_lon, to_lat)),
+         interval60 = floor_date(ymd_hms(scheduled_time), unit = "hour"),
+         week = week(interval60),
+         dotw = wday(interval60, label=TRUE),
+         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
+                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
+                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush"),
+         weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
 ```
+
+## Weather Data
+```{r import_weather, warning=FALSE}
+weather.Panel <- 
+  riem_measures(station = "EWR", date_start = "2019-11-01", date_end = "2019-11-30") %>%
+  dplyr::select(valid, tmpf, p01i, sknt)%>%
+  replace(is.na(.), 0) %>%
+    mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
+    mutate(week = week(interval60),
+           dotw = wday(interval60, label=TRUE)) %>%
+    group_by(interval60) %>%
+    summarize(Temperature = max(tmpf),
+              Precipitation = sum(p01i),
+              Wind_Speed = max(sknt)) %>%
+    mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
+
+glimpse(weather.Panel)
+```
+
+```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
+grid.arrange(
+  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#264653") + 
+  labs(title="Percipitation", x="Hour", y="Perecipitation") + plotTheme(),
+  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#264653") + 
+    labs(title="Wind Speed", x="Hour", y="Wind Speed") + plotTheme(),
+  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#264653") + 
+    labs(title="Temperature", x="Hour", y="Temperature") + plotTheme(),
+  top="Weather Data - NJ EWR - Nov, 2019")
+```
+
+## Census Data
+
+```{r get_census, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+NJCensus <- 
+  get_acs(geography = "county subdivision", 
+          variables = c("B01003_001", "B19013_001", 
+                        "B02001_002", "B08013_001",
+                        "B08012_001", "B08301_001", 
+                        "B08301_010", "B01002_001"), 
+          year = 2019, 
+          state = "NJ", 
+          geometry = TRUE, 
+          output = "wide") %>%
+  rename(Total_Pop =  B01003_001E,
+         Med_Inc = B19013_001E,
+         Med_Age = B01002_001E,
+         White_Pop = B02001_002E,
+         Travel_Time = B08013_001E,
+         Num_Commuters = B08012_001E,
+         Means_of_Transport = B08301_001E,
+         Total_Public_Trans = B08301_010E) %>%
+  select(Total_Pop, Med_Inc, White_Pop, Travel_Time,
+         Means_of_Transport, Total_Public_Trans,
+         Med_Age,
+         GEOID, geometry) %>%
+  mutate(Percent_White = White_Pop / Total_Pop,
+         Mean_Commute_Time = Travel_Time / Total_Public_Trans,
+         Percent_Taking_Public_Trans = Total_Public_Trans / Means_of_Transport)
+```
+
+```{r extract_geometries, include=FALSE}
+NJTracts <- 
+  NJCensus %>%
+  as.data.frame() %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(GEOID, geometry) %>% 
+  st_sf
+```
+
+```{r add_census_tracts,warning=FALSE, include=FALSE}
+train_census <- st_join(merged_dataset %>% 
+          filter(is.na(from_lon) == FALSE &
+                   is.na(from_lat) == FALSE &
+                   is.na(to_lat) == FALSE &
+                   is.na(to_lon) == FALSE) %>%
+          st_as_sf(., coords = c("from_lon", "from_lat"), crs = 4326),
+        NJTracts %>%
+          st_transform(crs=4326),
+        join=st_intersects,
+              left = TRUE) %>%
+  rename(From.Tract = GEOID) %>%
+  mutate(from_lon = unlist(map(geometry, 1)),
+         from_lat = unlist(map(geometry, 2)))%>%
+  as.data.frame() %>%
+  select(-geometry)
+
+train_census <- train_census %>%
+  st_as_sf(., coords = c("to_lon", "to_lat"), crs = 4326) %>%
+  st_join(., NJTracts %>%
+            st_transform(crs=4326),
+          join=st_intersects,
+          left = TRUE) %>%
+  rename(To.Tract = GEOID)  %>%
+  mutate(to_lon = unlist(map(geometry, 1)),
+         to_lat = unlist(map(geometry, 2)))%>%
+  as.data.frame() %>%
+  select(-geometry)
+```
+
+
+```{r trip_timeseries, echo=FALSE, fig.height=4, fig.width=4}
+ggplot(stop)+
+  geom_sf(data = NJTracts)+
+  geom_sf(data = stop%>%filter(str_detect(RAIL_SERVICE, "NE")), color = "darkorange",fill="transparent", linewidth = 1)+
+  scale_fill_manual(values = palette5)+
+    labs(title = "2019",
+         subtitle = "NJ",
+       caption = "Data from US Census Bureau")+
+  mapTheme()+
+  theme(legend.position = "bottom")
+```
+
+```{r weather_train_join}
+train_dataset <-train_census  %>%
+  left_join(weather.Panel, by ="interval60")
+```
+
+```{r census_train_join}
+NJCensus_select <- NJCensus%>%
+  select(geometry, Total_Pop, GEOID)
+
+train_dataset <- train_dataset  %>%
+  left_join(NJCensus_select, by = c("From.Tract" = "GEOID")) %>%
+  left_join(NJCensus_select, by =c("To.Tract"="GEOID")) %>%
+  select(-geometry.x,-geometry.y) %>%
+  rename(From_Total_Pop = Total_Pop.x,
+         To_Total_Pop = Total_Pop.y)
+```
+

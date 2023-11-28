@@ -229,17 +229,6 @@ merged_dataset <- train_dataset  %>%
 ```
 
 ## Exploratory Analysis
-```{r trip_timeseries, echo=FALSE, fig.height=4, fig.width=4}
-ggplot(stop)+
-  geom_sf(data = NJTracts)+
-  geom_sf(data = stop%>%filter(str_detect(RAIL_SERVICE, "NE")), color = "darkorange",fill="transparent", linewidth = 1)+
-  scale_fill_manual(values = palette5)+
-    labs(title = "2019",
-         subtitle = "NJ",
-       caption = "Data from US Census Bureau")+
-  mapTheme()+
-  theme(legend.position = "bottom")
-```
 
 ```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
 grid.arrange(

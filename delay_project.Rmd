@@ -80,14 +80,10 @@ mapTheme <- theme(plot.title =element_text(size=10),
 
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
+palette6 <- c("#264653","#2a9d8f",'#8AB17D',"#e9c46a",'#f4a261',"#e76f51")
 palette5 <- c("#264653","#2a9d8f","#e9c46a",'#f4a261',"#e76f51")
 palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
-```
-
-```{r install_census_API_key, warning = FALSE, include=FALSE, eval = TRUE}
-# Install Census API Key
-tidycensus::census_api_key("acc7865bbb75d743da30b4c1278b0d95cb3062db", overwrite = TRUE, install = TRUE)
 ```
 
 #Data Wrangling
@@ -126,7 +122,7 @@ merged_dataset <- merged_dataset%>%
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush"),
-         weekend = ifelse(dotw %in% c("周日", "周六"), "Weekend", "Weekday"))
+         weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
 ```
 
 ## Weather Data
@@ -177,7 +173,7 @@ NJCensus <-
          Percent_Taking_Public_Trans = Total_Public_Trans / Means_of_Transport)
 
 NJCensus_select <- NJCensus%>%
-  mutate(bigcity = ifelse(Total_Pop >= 6000, 'big city','small city'))%>%
+  mutate(bigcity = ifelse(Total_Pop >= 100000, 'big city','small city'))%>%
   select(geometry, Total_Pop,bigcity, GEOID)
 ```
 
@@ -232,7 +228,8 @@ merged_dataset <- train_dataset  %>%
          To_city = bigcity.y)
 ```
 
-
+# Exploratory Analysis
+## Serial Autocorrelation - Fixed Effects
 ```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
 grid.arrange(
   ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#264653") + 
@@ -259,26 +256,55 @@ delay_week <- merged_dataset %>%
 
 delay_hour <- merged_dataset %>%
   group_by(hour(interval60))%>%
-  summarize(mean_delay = mean(delay_minutes))
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(hour = 'hour(interval60)')
 
 delay_sequence <- merged_dataset %>%
   group_by(stop_sequence)%>%
   summarize(mean_delay = mean(delay_minutes))
 
-delay_distance <- merged_dataset %>%
-  group_by(distance)%>%
+delay_time_week <- merged_dataset %>%
+  group_by(time_of_day,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
 
-delay_intersct_t <- merged_dataset %>%
-  group_by(to_inter)%>%
-  summarize(mean_delay = mean(delay_minutes))
+delay_week_hour <- merged_dataset %>%
+  group_by(weekend,hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(hour = 'hour(interval60)')
 
-delay_intersct_f <-merged_dataset %>%
-  group_by(from_inter)%>%
-  summarize(mean_delay = mean(delay_minutes))
-
+grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
+  geom_bar(stat = "identity",fill = "#2a9d8f") +
+  labs(title = "Delay minutes in a week", x = "Day of The Week", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_week, aes(x = weekend, y = mean_delay)) +
+  geom_bar(stat = "identity",fill = palette2) +
+  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_hour, aes(x = hour, y = mean_delay)) +
+  geom_bar(stat = "identity",fill = "#2a9d8f") +
+  labs(title = "Delay minutes in 24 hours", x = "Hour in a day", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_sequence, aes(x = stop_sequence, y = mean_delay)) +
+  geom_bar(stat = "identity",fill = "#2a9d8f") +
+  labs(title = "Delay minutes in each sequence", x = "Stop Sequence", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_time, aes(x = time_of_day, y = mean_delay)) +
+  geom_bar(stat = "identity",fill = "#2a9d8f") +
+  labs(title = "Delay minutes in a week", x = "Day of The Week", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_time_week, aes(x = time_of_day, y = mean_delay, fill = weekend)) +
+  geom_col(position = "dodge")+
+  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") +
+  scale_fill_manual(values = palette2)+
+  theme_minimal(),
+  ggplot(data = delay_week_hour, aes(x = hour, y = mean_delay, color = weekend)) +
+  geom_line() +
+  scale_color_manual(values = palette2) +
+  labs(title = "The delay under week and time", x = "Hour", y = "Delay Minutes") +
+  theme_minimal(),nrow=3)
 ```
 
+## Spatial Autocorrelation - Fixed Effects
 ```{r map visualization}
 map_from <- merged_dataset %>%
   group_by(from)%>%
@@ -302,19 +328,19 @@ ggplot() +
   scale_colour_viridis(direction = -1,discrete = FALSE, option = "D")+
   scale_size_continuous(name = "Delay Minutes") +
   coord_sf()+
-  labs(title="Delayed Time in Station as Start, October, 2019")+
-  facet_grid(~status)
+  labs(title="Delayed Time in Station, October, 2019")+
+  facet_grid(~status)+
   mapTheme()
+  
 ```
 
+## Space-time Autocorrelation
 ```{r delay analysis combine}
 delay_stop_time <- merged_dataset %>%
   group_by(from,to,hour(interval60))%>%
   summarize(mean_delay = mean(delay_minutes))
 
-delay_week_hour <- merged_dataset %>%
-  group_by(weekend,hour(interval60))%>%
-  summarize(mean_delay = mean(delay_minutes))
+
 
 delay_intersct_week_f <-merged_dataset %>%
   group_by(from_inter,weekend)%>%
@@ -324,19 +350,58 @@ delay_intersct_week_t <-merged_dataset %>%
   group_by(to_inter,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
 
-ggplot(delay_week_hour)+
-     geom_freqpoly(aes(mean_delay, color = weekend), binwidth = 1)+
-  labs(title="Delayed Time in Northeast Corridor - weekend vs weekday, October, 2019",
-       x="Hour of the Day", 
-       y="Mean Delay time")
 ```
 
-
-# Exploratory Analysis
-## Serial Autocorrelation - Fixed Effects
-## Spatial Autocorrelation - Fixed Effects
-## Space-time Autocorrelation
 ## Operation Effects
+```{r}
+delay_distance <- merged_dataset %>%
+  group_by(distance)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct <- rbind(
+  merged_dataset %>%
+  group_by(from_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'from')%>%
+  rename(inter = from_inter),
+  merged_dataset %>%
+  group_by(to_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'to')%>%
+  rename(inter = to_inter))
+
+delay_rain_week <- merged_dataset %>%
+  mutate(rain = ifelse(Precipitation == 0,'NoRain','Rain'))%>%
+  group_by(rain,weekend)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_temp <- merged_dataset %>%
+  group_by(Temperature)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+grid.arrange(
+  ggplot(data = delay_intersct, aes(x = inter, y = mean_delay,fill=status)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Delay minutes in each intersection", x = "Num of Line", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_rain_week, aes(x = rain, y = mean_delay,fill=weekend)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Delay minutes with Rain", x = "Rain", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_distance, aes(x = distance, y = mean_delay)) +
+  geom_line(color = "#2a9d8f") +
+  labs(title = "The relationship between delay and distance", x = "Time", y = "Value") +
+  geom_smooth(method = "lm", se = TRUE)+
+  theme_minimal(),
+  ggplot(data = delay_temp, aes(x = Temperature, y = mean_delay)) +
+  geom_line(color = "#2a9d8f") +
+  labs(title = "The relationship between delay and temperature", x = "Temperature", y = "Value") +
+  geom_smooth(method = "lm", se = TRUE)+
+  theme_minimal())
+```
+
 ## Time Lag Effects
 ### NE线的每个station前n天delay的lag：lag 1/2/3/4/5/6/7 day
 ```{r time_lags,include=FALSE}
@@ -378,12 +443,7 @@ merged_dataset_station <-
 ```
 
 ```{r evaluate_station_lags, echo=FALSE,warning=FALSE}
-as.data.frame(merged_dataset_station) %>%
-    group_by(train_id) %>% 
-    summarise_at(vars(starts_with("lags"), "delay_minutes"), mean, na.rm = TRUE) %>%
-    gather(Variable, Value,-train_id,-delay_minutes) %>%
-    mutate(Variable = factor(Variable, levels=c("lagsstation","lags2station","lags3station","lags4station",
-                                                "lags5station","lags6station")))%>%
-    group_by(Variable) %>%  
-    summarize(correlation = round(cor(Value, delay_minutes),2))
+selected_columns <- merged_dataset_station[, c("delay_minutes", "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station")]
+cor_delay <- cor(selected_columns, use = "complete.obs")["delay_minutes", -1]%>%
+  as.data.frame()%>%rename(cor_score = '.')
 ```

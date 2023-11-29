@@ -85,9 +85,13 @@ palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
 ```
 
-#Data Wrangling & Exploratory Analysis
-## Data Load & Wrangling
-### NJ Transit Delay Data
+```{r install_census_API_key, warning = FALSE, include=FALSE, eval = TRUE}
+# Install Census API Key
+tidycensus::census_api_key("acc7865bbb75d743da30b4c1278b0d95cb3062db", overwrite = TRUE, install = TRUE)
+```
+
+#Data Wrangling
+## NJ Transit Delay Data
 
 ```{r}
 stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Stations/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson") %>%
@@ -122,10 +126,10 @@ merged_dataset <- merged_dataset%>%
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush"),
-         weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
+         weekend = ifelse(dotw %in% c("周日", "周六"), "Weekend", "Weekday"))
 ```
 
-### Weather Data
+## Weather Data
 ```{r import_weather, warning=FALSE}
 weather.Panel <- 
   riem_measures(station = "EWR", date_start = "2019-10-01", date_end = "2019-11-02") %>%
@@ -143,7 +147,7 @@ weather.Panel <-
 glimpse(weather.Panel)
 ```
 
-### Census Data
+## Census Data
 
 ```{r get_census, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
 NJCensus <- 
@@ -228,7 +232,6 @@ merged_dataset <- train_dataset  %>%
          To_city = bigcity.y)
 ```
 
-## Exploratory Analysis
 
 ```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
 grid.arrange(
@@ -326,4 +329,61 @@ ggplot(delay_week_hour)+
   labs(title="Delayed Time in Northeast Corridor - weekend vs weekday, October, 2019",
        x="Hour of the Day", 
        y="Mean Delay time")
+```
+
+
+# Exploratory Analysis
+## Serial Autocorrelation - Fixed Effects
+## Spatial Autocorrelation - Fixed Effects
+## Space-time Autocorrelation
+## Operation Effects
+## Time Lag Effects
+### NE线的每个station前n天delay的lag：lag 1/2/3/4/5/6/7 day
+```{r time_lags,include=FALSE}
+merged_dataset <- 
+  merged_dataset %>% 
+  arrange(from_id, interval60) %>% 
+  mutate(lagHour = dplyr::lag(delay_minutes,1),
+         lag2Hours = dplyr::lag(delay_minutes,2),
+         lag3Hours = dplyr::lag(delay_minutes,3),
+         lag4Hours = dplyr::lag(delay_minutes,4),
+         lag12Hours = dplyr::lag(delay_minutes,12),
+         lag1day = dplyr::lag(delay_minutes,24))
+
+```
+
+```{r evaluate_lags, echo=FALSE,warning=FALSE}
+as.data.frame(merged_dataset) %>%
+    group_by(interval60) %>% 
+    summarise_at(vars(starts_with("lag"), "delay_minutes"), mean, na.rm = TRUE) %>%
+    gather(Variable, Value, -interval60, -delay_minutes) %>%
+    mutate(Variable = factor(Variable, levels=c("lagHour","lag2Hours","lag3Hours","lag4Hours",
+                                                "lag12Hours","lag1day")))%>%
+    group_by(Variable) %>%  
+    summarize(correlation = round(cor(Value, delay_minutes),2))
+```
+
+###  NE线上n个station的lag：lag from the previous1/2/3/4/5/…station
+```{r station_lags,include=FALSE}
+merged_dataset_station <- 
+  merged_dataset %>% 
+  arrange(train_id, interval60,stop_sequence) %>% 
+  mutate(lagsstation = if_else(stop_sequence == 1, 0, lag(delay_minutes, 1)),
+         lags2station = if_else(stop_sequence == 1 | stop_sequence == 2, 0, lag(delay_minutes, 2)),
+         lags3station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3, 0, lag(delay_minutes, 3)),
+         lags4station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4, 0, lag(delay_minutes, 4)),
+         lags5station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5, 0, lag(delay_minutes, 5)),
+         lags6station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5| stop_sequence == 6, 0, lag(delay_minutes, 6)))
+
+```
+
+```{r evaluate_station_lags, echo=FALSE,warning=FALSE}
+as.data.frame(merged_dataset_station) %>%
+    group_by(train_id) %>% 
+    summarise_at(vars(starts_with("lags"), "delay_minutes"), mean, na.rm = TRUE) %>%
+    gather(Variable, Value,-train_id,-delay_minutes) %>%
+    mutate(Variable = factor(Variable, levels=c("lagsstation","lags2station","lags3station","lags4station",
+                                                "lags5station","lags6station")))%>%
+    group_by(Variable) %>%  
+    summarize(correlation = round(cor(Value, delay_minutes),2))
 ```

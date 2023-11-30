@@ -101,7 +101,7 @@ stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/servi
 
 id <- '1V_kl3QKOxrTlwA8UG7kdv_VpJdaojKMj'
 delay_df <- read.csv(sprintf("https://docs.google.com/uc?id=%s&export=download", id))%>%
-  filter((type == 'NJ Transit')&(line == 'Northeast Corrdr'))%>%
+  filter(type == 'NJ Transit')%>%
   na.omit()
 
 merged_dataset <- merge(delay_df, stop, by.x = "from", by.y = "STATION_ID",all.x = TRUE)
@@ -118,11 +118,15 @@ merged_dataset <- merged_dataset%>%
          interval60 = floor_date(ymd_hms(scheduled_time), unit = "hour"),
          week = week(interval60),
          dotw = wday(interval60, label=TRUE),
-         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 19 ~ "Overnight",
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
-                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush"),
+                                 hour(interval60) >= 15 & hour(interval60) <= 19 ~ "PM Rush"),
          weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
+```
+
+```{r check lack data}
+temp <- merged_dataset %>% filter(is.na(to_lat))
 ```
 
 ## Weather Data
@@ -311,7 +315,7 @@ map_from <- merged_dataset %>%
   summarize(mean_delay = mean(delay_minutes)) %>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  mutate(status = 'from')%>%
+  mutate(status = 'Orientation')%>%
   rename(station = from)
 
 map_to <- merged_dataset %>%
@@ -319,7 +323,7 @@ map_to <- merged_dataset %>%
   summarize(mean_delay = mean(delay_minutes)) %>%
   left_join(stop,by=c('to'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  mutate(status = 'to')%>%
+  mutate(status = 'Destination')%>%
   rename(station = to)
 
 ggplot() +
@@ -340,8 +344,6 @@ delay_stop_time <- merged_dataset %>%
   group_by(from,to,hour(interval60))%>%
   summarize(mean_delay = mean(delay_minutes))
 
-
-
 delay_intersct_week_f <-merged_dataset %>%
   group_by(from_inter,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
@@ -349,7 +351,35 @@ delay_intersct_week_f <-merged_dataset %>%
 delay_intersct_week_t <-merged_dataset %>%
   group_by(to_inter,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
+```
 
+```{r station delay visulaization}
+delay_to_time <- merged_dataset %>%
+  group_by(to,hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(hour = 'hour(interval60)')%>%
+  left_join(stop,by=c('to'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Orientation')%>%
+  rename(station = to)
+
+delay_from_time <- merged_dataset %>%
+  group_by(from,hour(interval60))%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(hour = 'hour(interval60)')%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Destination')%>%
+  rename(station = from)
+
+ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = rbind(delay_from_time,delay_to_time), aes(size =mean_delay, color = mean_delay)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Day in Oct, 2019",
+         subtitle = "Hours in a day: {current_frame}") +
+    facet_wrap(~status)+
+    transition_manual(hour)+ mapTheme()
 ```
 
 ## Operation Effects

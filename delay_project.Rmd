@@ -89,8 +89,17 @@ palette2 <- c("#264653","#2a9d8f")
 
 #Data Wrangling
 ## NJ Transit Delay Data
-
 ```{r}
+line <- st_read('https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTRANSIT_RAIL_LINES_1/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson')%>%
+  mutate(LINE_NAME = ifelse(LINE_NAME == 'Bergen County Line','Bergen Co. Line ',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'Montclair-Boonton Line','Montclair-Boonton',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'North Jersey Coast Line','No Jersey Coast',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'Northeast Corridor','Northeast Corrdr',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'Pascack Valley Line','Pascack Valley',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'Princeton Dinky','Princeton Shuttle',LINE_NAME),
+         LINE_NAME = ifelse(LINE_NAME == 'Raritan Valley Line','Raritan Valley',LINE_NAME))%>%
+  dplyr::select(LINE_NAME,geometry)
+
 stop <- st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Stations/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson") %>%
   mutate(STATION_ID = ifelse(STATION_ID == 'Atlantic City', 'Atlantic City Rail Terminal', STATION_ID),
          STATION_ID = ifelse((STATION_ID == 'Middletown')&(COUNTY == 'Orange, NY'), 'Middletown NY', STATION_ID),
@@ -695,8 +704,8 @@ corrplot(cor_matrix)
 merged_dataset_model <- merged_dataset_station%>%
   filter(line != 'Atl. City Line')%>%
   mutate(hour = hour(interval60))
-delay.Train <- filter(merged_dataset_model, week <= 43)
-delay.Test <- filter(merged_dataset_model, week > 43)
+delay.Train <- filter(merged_dataset_model, week <= 42)
+delay.Test <- filter(merged_dataset_model, week > 42)
 ```
 
 ```{r five_models }
@@ -712,12 +721,88 @@ reg3 <-
 
 reg4 <- 
   lm(delay_minutes ~  from + to +  hour + dotw + Temperature + Precipitation +
-                   lagHour + lag2Hours +lag3Hours + lag12Hours + lag1day, 
+                   lag1h + lag2h +lag3h, 
      data=delay.Train)
 
 reg5 <- 
   lm(delay_minutes ~  hour + weekend + Temperature + Precipitation + Wind_Speed + lag15min + lag30min + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min+lag2h30min+lag2h45min+lag3h + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, 
      data=delay.Train)
+```
+
+```{r model error}
+delay.Test_new <- delay.Test%>%
+  mutate(pre_5 = predict(reg5, newdata = delay.Test),
+         abosulte_error = abs(pre_5 - delay_minutes),
+         MAE = mean(abosulte_error,na.rm = TRUE),
+         sd_AE = sd(abosulte_error,na.rm = TRUE),
+         per_error = (pre_5 - delay_minutes)/delay_minutes,
+         per_error = ifelse(per_error == Inf,0,per_error),
+         per_error = ifelse(per_error == -Inf,0,per_error))
+```
+
+```{r error visualization}
+temp <- delay.Test_new %>% 
+  group_by(from)%>%
+  summarise(mean_ae = mean(abosulte_error),
+            mean_pe = mean(per_error))%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+
+grid.arrange(
+  ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp, aes(color = mean_ae)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Month in Oct, 2019") + mapTheme(),
+   ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp, aes(color = mean_pe )) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Month in Oct, 2019") + mapTheme(),nrow = 1 )
+```
+
+```{r error visualization-weekend}
+temp <- delay.Test_new %>% 
+  group_by(from,weekend)%>%
+  summarise(mean_ae = mean(abosulte_error),
+            mean_pe = mean(per_error))%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+
+grid.arrange(
+  ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp, aes(color = mean_pe)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Mean Percent Error Comaprison in Weekend") +
+    facet_wrap(~weekend)+mapTheme(),
+  ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp, aes(color = mean_ae)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Mean Abosulte Error Comaprison in Weekend") +
+    facet_wrap(~weekend)+mapTheme()
+)
+```
+
+```{r}
+temp <- delay.Test_new %>% 
+  group_by(line)%>%
+  summarise(mean_ae = mean(abosulte_error),
+            mean_pe = mean(per_error))%>%
+  left_join(line,by=c('line'='LINE_NAME'))
+
+grid.arrange(
+  ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp,aes(color = mean_pe, geometry = geometry))+
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Mean Percent Error in Line")+mapTheme(),
+ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = temp,aes(color = mean_ae, geometry = geometry))+
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Mean Abosulte Error in Line")+mapTheme(),nrow = 1)
 ```
 
 ```{r}

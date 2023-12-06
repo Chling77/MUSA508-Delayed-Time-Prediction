@@ -44,6 +44,7 @@ library(gifski)
 library(purrr)
 library(geosphere)
 library(googlesheets4)
+library(corrplot)
 
 plotTheme <- theme(
   plot.title =element_text(size=12),
@@ -259,6 +260,15 @@ merged_dataset <- train_dataset  %>%
          To_city = ifelse(to == "Philadelphia", 'big city', To_city),
          From_city = ifelse(from == "Middletown NY", 'big city', From_city),
          To_city = ifelse(to == "Middletown NY", 'big city', To_city))
+
+median_value_f <- median(merged_dataset$From_Total_Pop, na.rm = TRUE)
+merged_dataset$From_Total_Pop[is.na(merged_dataset$From_Total_Pop)] <- median_value_f
+median_value_t <- median(merged_dataset$To_Total_Pop, na.rm = TRUE)
+merged_dataset$To_Total_Pop[is.na(merged_dataset$To_Total_Pop)] <- median_value_t
+
+merged_dataset <- merged_dataset%>%
+  mutate(From_city = ifelse(From_Total_Pop == 24784, 'big city', From_city),
+         To_city = ifelse(To_Total_Pop == 24784, 'big city', To_city))
 ```
 
 # Exploratory Analysis
@@ -275,7 +285,6 @@ grid.arrange(
 ```
 
 ```{r delay analysis}
-# add a big/small bar plot
 delay_time <- merged_dataset %>%
   group_by(time_of_day)%>%
   summarize(mean_delay = mean(delay_minutes))
@@ -328,7 +337,7 @@ grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
   theme_minimal(),
   ggplot(data = delay_time_week, aes(x = time_of_day, y = mean_delay, fill = weekend)) +
   geom_col(position = "dodge")+
-  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") +
+  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") + 
   scale_fill_manual(values = palette2)+
   theme_minimal(),
   ggplot(data = delay_week_hour, aes(x = hour, y = mean_delay, color = weekend)) +
@@ -339,8 +348,37 @@ grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
 ```
 
 ## Spatial Autocorrelation - Fixed Effects
+```{r}
+delay_line <- merged_dataset %>%
+  group_by(line)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  arrange(., mean_delay)
+
+big_from <- merged_dataset %>%
+  group_by(From_city)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'from')%>%
+  rename(city_type = From_city)
+
+big_to <- merged_dataset %>%
+  group_by(To_city)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'to')%>%
+  rename(city_type = To_city)
+
+grid.arrange(ggplot(data = delay_line, aes(x = line, y = mean_delay, fill = line)) +
+  geom_col(position = "dodge")+
+  labs(title = "Delay minutes comparison in lines", x = "line", y = "Mean Delay") + 
+  scale_colour_viridis(direction = -1,discrete = FALSE, option = "D")+
+  theme_minimal(),
+  ggplot(data = rbind(big_from,big_to), aes(x = status , y = mean_delay, fill = city_type)) +
+  geom_col(position = "dodge")+
+  labs(title = "Delay minutes comparison in big and small city", x = "City Type", y = "Mean Delay") + 
+  scale_fill_manual(values = palette2)+
+  theme_minimal())
+```
+
 ```{r map visualization}
-# add a delay time about big city/small city
 map_from <- merged_dataset %>%
   group_by(from)%>%
   summarize(mean_delay = mean(delay_minutes)) %>%
@@ -366,7 +404,6 @@ ggplot() +
   labs(title="Delayed Time in Station, October, 2019")+
   facet_grid(~status)+
   mapTheme()
-  
 ```
 
 ## Space-time Autocorrelation
@@ -382,6 +419,20 @@ delay_intersct_week_f <-merged_dataset %>%
 delay_intersct_week_t <-merged_dataset %>%
   group_by(to_inter,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
+```
+
+```{r}
+inter_stop <- stop%>%
+  right_join(delay_intersct_week_f,by=c('line_intersct' = 'from_inter'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+
+ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = inter_stop, aes(size = line_intersct,color = mean_delay)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Day in Oct, 2019",
+         subtitle = "Hours in a day: {current_frame}") +
+    facet_wrap(~weekend)+ mapTheme()
 ```
 
 ```{r station delay visulaization}
@@ -411,6 +462,62 @@ ggplot() +
          subtitle = "Hours in a day: {current_frame}") +
     facet_wrap(~status)+
     transition_manual(hour)+ mapTheme()
+```
+
+```{r}
+delay_to_time <- merged_dataset %>%
+  group_by(to,dotw)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(Day = dotw)%>%
+  left_join(stop,by=c('to'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Orientation')%>%
+  rename(station = to)
+
+delay_from_time <- merged_dataset %>%
+  group_by(from,dotw)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  rename(Day = dotw)%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Destination')%>%
+  rename(station = from)
+
+ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = rbind(delay_from_time,delay_to_time), aes(size =mean_delay, color = mean_delay)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Week in Oct, 2019",
+         subtitle = "Day in a week: {current_frame}") +
+    facet_wrap(~status)+
+    transition_manual(Day)+ mapTheme()
+```
+
+```{r}
+delay_to_time <- merged_dataset %>%
+  group_by(to,week)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  left_join(stop,by=c('to'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Orientation')%>%
+  rename(station = to)
+
+delay_from_time <- merged_dataset %>%
+  group_by(from,week)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  mutate(status = 'Destination')%>%
+  rename(station = from)
+
+ggplot() +
+    geom_sf(data = NJTracts, color = 'grey') + 
+    geom_sf(data = rbind(delay_from_time,delay_to_time), aes(size =mean_delay, color = mean_delay)) +
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
+    labs(title = "Station Delay For One Month in Oct, 2019",
+         subtitle = "Week in a month: {current_frame}") +
+    facet_wrap(~status)+
+    transition_manual(week)+ mapTheme()
 ```
 
 ## Operation Effects
@@ -464,27 +571,38 @@ grid.arrange(
 ```
 
 ## Time Lag Effects
-##### 1130 version
+```{r lag_15min}
+
+merged_dataset <- merged_dataset %>%
+   mutate(interval15 = floor_date(ymd_hms(scheduled_time), unit = "15 mins"))
+
+```
+
 ```{r time_lags,include=FALSE}
 merged_dataset <- 
   merged_dataset %>% 
-  arrange(from_id, interval60) %>% 
-  mutate(lagHour = dplyr::lag(delay_minutes,1),
-         lag2Hours = dplyr::lag(delay_minutes,2),
-         lag3Hours = dplyr::lag(delay_minutes,3),
-         lag4Hours = dplyr::lag(delay_minutes,4),
-         lag12Hours = dplyr::lag(delay_minutes,12),
-         lag1day = dplyr::lag(delay_minutes,24))
+  arrange(from_id, interval15) %>% 
+  mutate(lag15min = dplyr::lag(delay_minutes,1),
+         lag30min = dplyr::lag(delay_minutes,2),
+         lag45min = dplyr::lag(delay_minutes,3),
+         lag1h = dplyr::lag(delay_minutes,4),
+         lag1h15min = dplyr::lag(delay_minutes,5),
+         lag1h30min = dplyr::lag(delay_minutes,6),
+         lag1h45min = dplyr::lag(delay_minutes,7),
+         lag2h = dplyr::lag(delay_minutes,8),
+         lag2h15min = dplyr::lag(delay_minutes,9),
+         lag2h30min = dplyr::lag(delay_minutes,10),
+         lag2h45min = dplyr::lag(delay_minutes,11),
+         lag3h = dplyr::lag(delay_minutes,12))
 
 ```
 
 ```{r evaluate_lags, echo=FALSE,warning=FALSE}
 as.data.frame(merged_dataset) %>%
-    group_by(interval60) %>% 
+    group_by(interval15) %>% 
     summarise_at(vars(starts_with("lag"), "delay_minutes"), mean, na.rm = TRUE) %>%
-    gather(Variable, Value, -interval60, -delay_minutes) %>%
-    mutate(Variable = factor(Variable, levels=c("lagHour","lag2Hours","lag3Hours","lag4Hours",
-                                                "lag12Hours","lag1day")))%>%
+    gather(Variable, Value, -interval15, -delay_minutes) %>%
+    mutate(Variable = factor(Variable, levels=c("lag15min","lag30min","lag45min","lag1h",                       "lag1h15min","lag1h30min","lag1h45min","lag2h","lag2h15min","lag2h30min","lag2h45min","lag3h")))%>%
     group_by(Variable) %>%  
     summarize(correlation = round(cor(Value, delay_minutes),2))
 ```
@@ -493,26 +611,28 @@ as.data.frame(merged_dataset) %>%
 ```{r station_lags,include=FALSE}
 merged_dataset_station <- 
   merged_dataset %>% 
-  arrange(train_id, interval60,stop_sequence) %>% 
+  arrange(train_id, interval15,stop_sequence) %>% 
   mutate(lagsstation = if_else(stop_sequence == 1, 0, lag(delay_minutes, 1)),
          lags2station = if_else(stop_sequence == 1 | stop_sequence == 2, 0, lag(delay_minutes, 2)),
          lags3station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3, 0, lag(delay_minutes, 3)),
          lags4station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4, 0, lag(delay_minutes, 4)),
          lags5station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5, 0, lag(delay_minutes, 5)),
-         lags6station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5| stop_sequence == 6, 0, lag(delay_minutes, 6)))
-
+         lags6station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5| stop_sequence == 6, 0, lag(delay_minutes, 6)),
+         lags7station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5 | stop_sequence ==6 | stop_sequence == 7, 0, lag(delay_minutes, 7)),
+         lags8station = if_else(stop_sequence == 1 | stop_sequence == 2| stop_sequence == 3| stop_sequence == 4| stop_sequence == 5| stop_sequence == 6| stop_sequence == 7| stop_sequence == 8 , 0, lag(delay_minutes, 8))
+         )
 ```
 
 ```{r evaluate_time_lags, echo=FALSE, fig.height=4, fig.width=8}
-selected_columns <- merged_dataset_station[, c("delay_minutes", "lagHour","lag2Hours","lag3Hours","lag4Hours","lag12Hours","lag1day","week")]
+selected_columns <- merged_dataset_station[, c("delay_minutes", "lag15min","lag30min","lag45min","lag1h",                       "lag1h15min","lag1h30min","lag1h45min","lag2h","lag2h15min","lag2h30min","lag2h45min","lag3h","week")]
 cor_delay_all_time <- cor(selected_columns, use = "complete.obs")["delay_minutes", -1]%>%
   as.data.frame()%>%rename(cor_score = '.')
 
 plotData.lag_time <-
-  filter(as.data.frame(merged_dataset_station), week == 42) %>%
-  dplyr::select(lagHour,lag2Hours,lag3Hours,lag4Hours,lag12Hours,lag1day, delay_minutes) %>%
+  filter(as.data.frame(merged_dataset_station), week == 43) %>%
+  dplyr::select(lag15min,lag30min,lag45min,lag1h,                       lag1h15min,lag1h30min,lag1h45min,lag2h,lag2h15min,lag2h30min,lag2h45min,lag3h, delay_minutes) %>%
   gather(Variable, Value, -delay_minutes) %>%
-  mutate(Variable = fct_relevel(Variable,"lagHour","lag2Hours","lag3Hours","lag4Hours","lag12Hours","lag1day"))
+  mutate(Variable = fct_relevel(Variable,"lag15min","lag30min","lag45min","lag1h",                       "lag1h15min","lag1h30min","lag1h45min","lag2h","lag2h15min","lag2h30min","lag2h45min","lag3h"))
 
 correlation.lag_time <-
   group_by(plotData.lag_time, Variable) %>%
@@ -523,23 +643,22 @@ ggplot(plotData.lag_time, aes(Value,delay_minutes))+
   geom_text(data = correlation.lag_time, aes(label = paste("r =", round(correlation, 2))),
             x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
   geom_smooth(method = 'lm', se=FALSE, color ="#2a9d8f")+
-  facet_wrap(~Variable, ncol = 3, scales = 'free') +
-  labs(title = "Delay minute from previous hours as a function of spatial lags",
+  facet_wrap(~Variable, ncol = 4, scales = 'free') +
+  labs(title = "Delay minute from previous time as a function of spatial lags",
        subtitle = "One week in Oct, 2019") +
   mapTheme()
-  
 ```
 
 ```{r evaluate_station_lags, echo=FALSE, fig.height=4, fig.width=8}
-selected_columns <- merged_dataset_station[, c("delay_minutes", "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station","week")]
+selected_columns <- merged_dataset_station[, c("delay_minutes", "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station","lags7station", "lags8station","week")]
 cor_delay_all_stations <- cor(selected_columns, use = "complete.obs")["delay_minutes", -1]%>%
   as.data.frame()%>%rename(cor_score = '.')
 
 plotData.lag_station <-
-  filter(as.data.frame(merged_dataset_station), week == 42) %>%
+  filter(as.data.frame(merged_dataset_station), week == 43) %>%
   dplyr::select(starts_with("lags"), delay_minutes) %>%
   gather(Variable, Value, -delay_minutes) %>%
-  mutate(Variable = fct_relevel(Variable, "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station"))
+  mutate(Variable = fct_relevel(Variable, "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station","lags7station", "lags8station"))
 
 correlation.lag_station <-
   group_by(plotData.lag_station, Variable) %>%
@@ -555,12 +674,62 @@ ggplot(plotData.lag_station, aes(Value,delay_minutes))+
        subtitle = "One week in Oct, 2019") +
   mapTheme()
 ```
+Correlation Matrix - all variables
+```{r}
+merged_dataset_station <- merged_dataset_station%>%
+  mutate(isbig_from = ifelse(From_city == 'big city',1,0),
+         isbig_to = ifelse(To_city == 'big city',1,0),
+         isweekday = ifelse(weekend == 'Weekday',1,0))
+```
 
 ```{r}
 cor_matrix <- merged_dataset_station %>%
-dplyr::select(lagHour,lag2Hours,lag3Hours,lag4Hours,lag12Hours,lag1day,lagsstation,lags2station,distance,Temperature,Precipitation,Wind_Speed)
+  dplyr::select(delay_minutes,stop_sequence,distance,Temperature,Precipitation,Wind_Speed,from_inter,to_inter,isweekday,lag15min,lag30min,lag45min,lag1h,                       lag1h15min,lag1h30min,lag1h45min,lag2h,lag2h15min,lag2h30min,lag2h45min,lag3h,lagsstation,lags2station,lags3station, lags4station, lags5station, lags6station, lags7station, lags8station)
 
 cor_matrix <- cor(cor_matrix, method = "pearson", use = "complete.obs")
 
 corrplot(cor_matrix)
+```
+
+```{r train_test }
+merged_dataset_model <- merged_dataset_station%>%
+  filter(line != 'Atl. City Line')%>%
+  mutate(hour = hour(interval60))
+delay.Train <- filter(merged_dataset_model, week <= 43)
+delay.Test <- filter(merged_dataset_model, week > 43)
+```
+
+```{r five_models }
+reg1 <- 
+  lm(delay_minutes ~  hour + dotw + Temperature,  data=delay.Train)
+
+reg2 <- 
+  lm(delay_minutes ~  from + to + dotw + Temperature,  data=delay.Train)
+
+reg3 <- 
+  lm(delay_minutes ~  from + to + hour + dotw + Temperature + Precipitation, 
+     data=delay.Train)
+
+reg4 <- 
+  lm(delay_minutes ~  from + to +  hour + dotw + Temperature + Precipitation +
+                   lagHour + lag2Hours +lag3Hours + lag12Hours + lag1day, 
+     data=delay.Train)
+
+reg5 <- 
+  lm(delay_minutes ~  hour + weekend + Temperature + Precipitation + Wind_Speed + lag15min + lag30min + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min+lag2h30min+lag2h45min+lag3h + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, 
+     data=delay.Train)
+```
+
+```{r}
+fitControl <- trainControl(method = "cv", number = 10)
+set.seed(825)
+
+reg.cv <- 
+  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lagHour + lag2Hours +lag3Hours +lag12Hours + lag1day + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter, delay.Train, 
+        method = "lm", trControl = fitControl, na.action = na.pass)
+
+ggplot(reg.cv$resample, aes(x=MAE)) + 
+  geom_histogram(color='white',fill="orange",bins=100)+
+  scale_x_continuous(limits=c(0,150000),breaks=c(25000,50000,75000,100000,125000,150000))+
+  scale_y_continuous(breaks=c(0,2,4,6,8,10))
 ```

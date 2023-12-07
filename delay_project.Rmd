@@ -89,7 +89,10 @@ palette2 <- c("#264653","#2a9d8f")
 
 #Data Wrangling
 ## NJ Transit Delay Data
-```{r}
+## Weather Data
+## Census Data
+```{r load data}
+#geometry data
 line <- st_read('https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTRANSIT_RAIL_LINES_1/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson')%>%
   mutate(LINE_NAME = ifelse(LINE_NAME == 'Bergen County Line','Bergen Co. Line ',LINE_NAME),
          LINE_NAME = ifelse(LINE_NAME == 'Montclair-Boonton Line','Montclair-Boonton',LINE_NAME),
@@ -155,10 +158,8 @@ merged_dataset <- merged_dataset%>%
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
                                  hour(interval60) >= 15 & hour(interval60) <= 19 ~ "PM Rush"),
          weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
-```
 
-## Weather Data
-```{r import_weather, warning=FALSE}
+#wweather data
 weather.Panel <- 
   riem_measures(station = "EWR", date_start = "2019-10-01", date_end = "2019-11-02") %>%
   dplyr::select(valid, tmpf, p01i, sknt)%>%
@@ -172,12 +173,7 @@ weather.Panel <-
               Wind_Speed = max(sknt)) %>%
     mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
 
-glimpse(weather.Panel)
-```
-
-## Census Data
-
-```{r get_census, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# census data
 NJCensus <- 
   get_acs(geography = "county subdivision", 
           variables = c("B01003_001", "B19013_001", 
@@ -207,18 +203,14 @@ NJCensus <-
 NJCensus_select <- NJCensus%>%
   mutate(bigcity = ifelse(Total_Pop >= 100000, 'big city','small city'))%>%
   select(geometry, Total_Pop,bigcity, GEOID)
-```
 
-```{r extract_geometries, include=FALSE}
 NJTracts <- 
   NJCensus %>%
   as.data.frame() %>%
   distinct(GEOID, .keep_all = TRUE) %>%
   select(GEOID, geometry) %>% 
   st_sf
-```
 
-```{r add_census_tracts,warning=FALSE, include=FALSE}
 train_census <- st_join(merged_dataset %>% 
           filter(is.na(from_lon) == FALSE &
                    is.na(from_lat) == FALSE &
@@ -249,9 +241,6 @@ train_census <- train_census %>%
 
 train_dataset <-train_census  %>%
   left_join(weather.Panel, by ="interval60")
-
-# philly 1579075
-# newyork 1631993
 
 merged_dataset <- train_dataset  %>%
   left_join(NJCensus_select, by = c("From.Tract" = "GEOID")) %>%
@@ -293,6 +282,7 @@ grid.arrange(
   top="Weather Data - NJ EWR - Nov, 2019")
 ```
 
+From the Temporal Series Analysis, We can find that Delay in NJ Transit has an obvious regularity in the temporal field. We were able to find that weekend delays had a longer average length than weekdays. And when we look at latency over a 24-hour period, we can see that latency reaches its maximum between 2:00 a.m. and 3:00 a.m., and overall latency stays on an upward trend from 4:00 a.m. onwards. And when we look at the relationship between stop sequence and delay time, we are able to see that the average latency time increases as the station sequence increases. We were able to find the highest latency in the PM Rush phase, followed by the overnight phase. When we wanted to explore the compounding of time, we were able to find that the PM Rush phase and the overnight phase had significantly higher latency times on weekends than on weekdays. And when we look at the pattern of average delay times for 24 hours in a day compared to weekdays and weekends, we find that they both maintain a similar pattern.
 ```{r delay analysis}
 delay_time <- merged_dataset %>%
   group_by(time_of_day)%>%
@@ -357,11 +347,17 @@ grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
 ```
 
 ## Spatial Autocorrelation - Fixed Effects
-```{r}
+```{r spatial analysis}
 delay_line <- merged_dataset %>%
   group_by(line)%>%
   summarize(mean_delay = mean(delay_minutes))%>%
   arrange(., mean_delay)
+
+delay_from <- merged_dataset %>%
+  group_by(from)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  arrange(., -mean_delay)%>%
+  head(20)
 
 big_from <- merged_dataset %>%
   group_by(From_city)%>%
@@ -385,6 +381,12 @@ grid.arrange(ggplot(data = delay_line, aes(x = line, y = mean_delay, fill = line
   labs(title = "Delay minutes comparison in big and small city", x = "City Type", y = "Mean Delay") + 
   scale_fill_manual(values = palette2)+
   theme_minimal())
+
+ggplot(data = delay_from, aes(x = from, y = mean_delay, fill = from)) +
+  geom_col(position = "dodge")+
+  labs(title = "Delay minutes comparison in lines", x = "line", y = "Mean Delay") + 
+  scale_colour_viridis(direction = -1,discrete = FALSE, option = "E")+
+  theme_minimal()
 ```
 
 ```{r map visualization}
@@ -580,14 +582,10 @@ grid.arrange(
 ```
 
 ## Time Lag Effects
-```{r lag_15min}
-
+```{r time_lags,include=FALSE}
 merged_dataset <- merged_dataset %>%
    mutate(interval15 = floor_date(ymd_hms(scheduled_time), unit = "15 mins"))
 
-```
-
-```{r time_lags,include=FALSE}
 merged_dataset <- 
   merged_dataset %>% 
   arrange(from_id, interval15) %>% 
@@ -603,7 +601,6 @@ merged_dataset <-
          lag2h30min = dplyr::lag(delay_minutes,10),
          lag2h45min = dplyr::lag(delay_minutes,11),
          lag3h = dplyr::lag(delay_minutes,12))
-
 ```
 
 ```{r evaluate_lags, echo=FALSE,warning=FALSE}
@@ -727,10 +724,15 @@ reg4 <-
 reg5 <- 
   lm(delay_minutes ~  hour + weekend + Temperature + Precipitation + Wind_Speed + lag15min + lag30min + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min+lag2h30min+lag2h45min+lag3h + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, 
      data=delay.Train)
+
+reg6 <- 
+  lm(delay_minutes ~  from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag15min + lag30min + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min+lag2h30min+lag2h45min+lag3h + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, 
+     data=delay.Train)
 ```
 
 ```{r model error}
-delay.Test_new <- delay.Test%>%
+#dplyr::select(from,to,delay_minutes,weekend,line)%>%
+delay.Test_5 <- delay.Test%>%
   mutate(pre_5 = predict(reg5, newdata = delay.Test),
          abosulte_error = abs(pre_5 - delay_minutes),
          MAE = mean(abosulte_error,na.rm = TRUE),
@@ -738,71 +740,86 @@ delay.Test_new <- delay.Test%>%
          per_error = (pre_5 - delay_minutes)/delay_minutes,
          per_error = ifelse(per_error == Inf,0,per_error),
          per_error = ifelse(per_error == -Inf,0,per_error))
+
+#dplyr::select(from,to,delay_minutes,weekend,line)%>%
+delay.Test_6 <- delay.Test%>%
+  mutate(pre_6 = predict(reg6, newdata = delay.Test),
+         abosulte_error = abs(pre_6 - delay_minutes),
+         MAE = mean(abosulte_error,na.rm = TRUE),
+         sd_AE = sd(abosulte_error,na.rm = TRUE),
+         per_error = (pre_6 - delay_minutes)/delay_minutes,
+         per_error = ifelse(per_error == Inf,0,per_error),
+         per_error = ifelse(per_error == -Inf,0,per_error))
+
+delay.Test_6%>%
+  dplyr::select(interval60, from, delay_minutes, pre_6) %>%
+  gather(Variable, Value, -interval60, -from) %>%
+    group_by(Variable, interval60) %>%
+    summarize(Value = mean(Value))%>%
+    ggplot(aes(interval60, Value, colour=Variable)) + 
+    geom_line(size = 1.1)+
+      labs(title = "Predicted/Observed delay time series", subtitle = "NJ; A test set of 2 weeks",  x = "Hour", y= "Mean Delay") +
+     theme_minimal()
 ```
 
 ```{r error visualization}
-temp <- delay.Test_new %>% 
+temp <- delay.Test_5 %>% 
   group_by(from)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
-  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  dplyr::select(from,mean_ae,geometry)%>%
+  mutate(mod = 'Reg5')
 
-grid.arrange(
-  ggplot() +
+temp2 <- delay.Test_6 %>% 
+  group_by(from)%>%
+  summarise(mean_ae = mean(abosulte_error),
+            mean_pe = mean(per_error))%>%
+  left_join(stop,by=c('from'='STATION_ID'))%>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
+  dplyr::select(from,mean_ae,geometry)%>%
+  mutate(mod = 'Reg6')
+
+temp3 <- rbind(temp,temp2)
+
+ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp, aes(color = mean_ae)) +
+    geom_sf(data = temp3, aes(color = mean_ae,size = mean_ae)) +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Station Delay For One Month in Oct, 2019") + mapTheme(),
-   ggplot() +
-    geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp, aes(color = mean_pe )) +
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Station Delay For One Month in Oct, 2019") + mapTheme(),nrow = 1 )
+    labs(title = "Mean Abosulte Error in Stop Prediction") +
+    facet_wrap(~mod)+
+    mapTheme()
 ```
 
 ```{r error visualization-weekend}
-temp <- delay.Test_new %>% 
+temp <- delay.Test_6 %>% 
   group_by(from,weekend)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
 
-grid.arrange(
-  ggplot() +
-    geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp, aes(color = mean_pe)) +
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Percent Error Comaprison in Weekend") +
-    facet_wrap(~weekend)+mapTheme(),
-  ggplot() +
+ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
     geom_sf(data = temp, aes(color = mean_ae)) +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
     labs(title = "Mean Abosulte Error Comaprison in Weekend") +
     facet_wrap(~weekend)+mapTheme()
-)
 ```
 
 ```{r}
-temp <- delay.Test_new %>% 
+temp <- delay.Test_6 %>% 
   group_by(line)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
   left_join(line,by=c('line'='LINE_NAME'))
 
-grid.arrange(
-  ggplot() +
-    geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp,aes(color = mean_pe, geometry = geometry))+
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Percent Error in Line")+mapTheme(),
 ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
     geom_sf(data = temp,aes(color = mean_ae, geometry = geometry))+
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Abosulte Error in Line")+mapTheme(),nrow = 1)
+    labs(title = "Mean Abosulte Error in Line")+mapTheme()
 ```
 
 ```{r}
@@ -810,7 +827,7 @@ fitControl <- trainControl(method = "cv", number = 10)
 set.seed(825)
 
 reg.cv <- 
-  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lagHour + lag2Hours +lag3Hours +lag12Hours + lag1day + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter, delay.Train, 
+  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag15min + lag30min + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min+lag2h30min+lag2h45min+lag3h + lagsstation + lags2station + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, delay.Train, 
         method = "lm", trControl = fitControl, na.action = na.pass)
 
 ggplot(reg.cv$resample, aes(x=MAE)) + 

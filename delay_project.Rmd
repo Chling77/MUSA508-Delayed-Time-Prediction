@@ -2,16 +2,29 @@
 title: "Train Delay Time Prediction"
 author: "Tianxiao & Ling"
 date: "2023-11-25"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: yes
+    theme: sandstone
+    highlight: tango
+    fig_retina: 2
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
-
 # Introduction
+Serving as the second largest commuter rail network in the United State, the NJ Transit spans New Jersey and the state to New York City. However, their delays are getting worse with more office workers returning, on the other hand, there are no interactive apps for commuters that can predict the immediate delays that may happen by chance or fixedly occur on their daily commute routes during the day. As such, they cannot foresee them instantly and mitigate accordingly.
 
-```{r setup, include=FALSE}
+In our project, we further investigate into the delay performance on NJ transit's commuter rail routes and come up with some interactive & instant predictive strategies targeted at commuters within NJ Transit Commuter Rail Routes.
+
+As such, Delay detective is designed with commuters in mind. The functions include the notifications of the estimated arrival time before scheduled arrival time, on-time & average-delay performance, as well as passenger feedback.
+```{r setup, include=FALSE,message=FALSE,warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
-```{r load package}
+```{r load package,message=FALSE,warning=FALSE}
 library(tidycensus)
 library(tidyverse)
 library(dplyr)
@@ -86,14 +99,7 @@ palette5 <- c("#264653","#2a9d8f","#e9c46a",'#f4a261',"#e76f51")
 palette4 <- c("#264653","#2a9d8f","#e9c46a","#e76f51")
 palette2 <- c("#264653","#2a9d8f")
 ```
-
-#Data Wrangling
-## Data Source
-*[NJ Transit Delay Data](https://www.kaggle.com/datasets/pranavbadami/nj-transit-amtrak-nec-performance) ----
-*[NJ Rail Station & Line Data](https://njogis-newjersey.opendata.arcgis.com) ---- 
-*[Weather Data]() ----
-*[Census Data](https://data.census.gov/) ----
-```{r load data}
+```{r load data,message=FALSE,warning=FALSE,results='hide'}
 #geometry data
 line <- st_read('https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTRANSIT_RAIL_LINES_1/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson')%>%
   mutate(LINE_NAME = ifelse(LINE_NAME == 'Bergen County Line','Bergen Co. Line ',LINE_NAME),
@@ -272,19 +278,18 @@ merged_dataset <- merged_dataset%>%
 ```
 
 # Exploratory Analysis
+## Data Source
+*[NJ Transit Delay Data](https://www.kaggle.com/datasets/pranavbadami/nj-transit-amtrak-nec-performance) --- The dataset provides delay data for each month between NJ transit 2018-2019, and delay data for October 2019 was used in this project.
+
+*[NJ Rail Station & Line Data](https://njogis-newjersey.opendata.arcgis.com) --- The dataset provides the geometry data of the line and station, and be used for further data visualization.
+
+*[Weather Data](https://mesonet.agron.iastate.edu/request/download.phtml) --- The dataset provides the weather data collected from the weather stations. And the dataset include the precipitation, wind speed and temperature data.
+
+*[Census Data](https://data.census.gov/) --- The dataset is provided by Census Bureau and gives the social-ecnomic situation of city.
+
 ## Serial Autocorrelation - Fixed Effects
-```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE}
-grid.arrange(
-  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#264653") + 
-  labs(title="Percipitation", x="Hour", y="Perecipitation") + plotTheme(),
-  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#264653") + 
-    labs(title="Wind Speed", x="Hour", y="Wind Speed") + plotTheme(),
-  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#264653") + 
-    labs(title="Temperature", x="Hour", y="Temperature") + plotTheme(),
-  top="Weather Data - NJ EWR - Nov, 2019")
-```
 From the Temporal Series Analysis, We can find that Delay in NJ Transit has an obvious regularity in the temporal field. We were able to find that weekend delays had a longer average length than weekdays. And when we look at latency over a 24-hour period, we can see that latency reaches its maximum between 2:00 a.m. and 3:00 a.m., and overall latency stays on an upward trend from 4:00 a.m. onwards. And when we look at the relationship between stop sequence and delay time, we are able to see that the average latency time increases as the station sequence increases. We were able to find the highest latency in the PM Rush phase, followed by the overnight phase. When we wanted to explore the compounding of time, we were able to find that the PM Rush phase and the overnight phase had significantly higher latency times on weekends than on weekdays. And when we look at the pattern of average delay times for 24 hours in a day compared to weekdays and weekends, we find that they both maintain a similar pattern.
-```{r delay analysis}
+```{r delay analysis,fig.height=8, fig.width=10,message=FALSE,warning=FALSE}
 delay_time <- merged_dataset %>%
   group_by(time_of_day)%>%
   summarize(mean_delay = mean(delay_minutes))
@@ -321,7 +326,7 @@ grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
   theme_minimal(),
   ggplot(data = delay_week, aes(x = weekend, y = mean_delay)) +
   geom_bar(stat = "identity",fill = palette2) +
-  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") +
+  labs(title = "Delay comparison in Weekend", x = "Weekend or Weekday", y = "Mean Delay") +
   theme_minimal(),
   ggplot(data = delay_hour, aes(x = hour, y = mean_delay)) +
   geom_bar(stat = "identity",fill = "#2a9d8f") +
@@ -334,11 +339,6 @@ grid.arrange(ggplot(data = delay_day, aes(x = dotw, y = mean_delay)) +
   ggplot(data = delay_time, aes(x = time_of_day, y = mean_delay)) +
   geom_bar(stat = "identity",fill = "#2a9d8f") +
   labs(title = "Delay minutes in a week", x = "Day of The Week", y = "Mean Delay") +
-  theme_minimal(),
-  ggplot(data = delay_time_week, aes(x = time_of_day, y = mean_delay, fill = weekend)) +
-  geom_col(position = "dodge")+
-  labs(title = "Delay minutes comparison in weekday & weekend", x = "Weekend or Weekday", y = "Mean Delay") + 
-  scale_fill_manual(values = palette2)+
   theme_minimal(),
   ggplot(data = delay_week_hour, aes(x = hour, y = mean_delay, color = weekend)) +
   geom_line() +
@@ -358,7 +358,8 @@ merged_dataset%>%
 ```
 
 ## Spatial Autocorrelation - Fixed Effects
-```{r spatial analysis}
+From the charts and maps, we can observe that the delay time is highly associated with station and line. Specifically, the Atlantic city line has the most serious delay situation.Same with the stations along the Atlantic city Line. However, NJ Transit Commuter Routes as a whole have similar trends in delays. Also, in order to compare the difference in delay time, we compared the size of the city where the station is located with delay time based on census tracts under counties and defined cities with populations over 100,000 as big cities. It was found that delay time was an insignificant factor. In the meantime, from the map we can also conclude that the direction doesn’t seem to have a significant influence on delay in general.
+```{r spatial analysis,fig.height=8, fig.width=10,message=FALSE,warning=FALSE}
 delay_line <- merged_dataset %>%
   group_by(line)%>%
   summarize(mean_delay = mean(delay_minutes))%>%
@@ -386,20 +387,23 @@ grid.arrange(ggplot(data = delay_line, aes(x = line, y = mean_delay, fill = mean
   geom_col(position = "dodge")+
   labs(title = "Delay minutes comparison in lines", x = "line", y = "Mean Delay") + 
   scale_fill_gradient(low = "#2a9d8f", high = "#264653") +
-  theme_minimal(),
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 15, hjust = 1)) ,
   ggplot(data = rbind(big_from,big_to), aes(x = status , y = mean_delay, fill = city_type)) +
   geom_col(position = "dodge")+
   labs(title = "Delay minutes comparison in big and small city", x = "City Type", y = "Mean Delay") + 
   scale_fill_manual(values = palette2)+
-  theme_minimal(),
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 0 , hjust = 1)),
   ggplot(data = delay_from, aes(x = from, y = mean_delay, fill = mean_delay)) +
   geom_col(position = "dodge")+
   labs(title = "Delay minutes comparison in lines", x = "line", y = "Mean Delay") + 
   scale_fill_gradient(low = "#2a9d8f", high = "#264653") +
-  theme_minimal())
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)))
 ```
 
-```{r map visualization}
+```{r map visualization,fig.height=8, fig.width=10,message=FALSE,warning=FALSE}
 map_from <- merged_dataset %>%
   group_by(from)%>%
   summarize(mean_delay = mean(delay_minutes)) %>%
@@ -424,11 +428,76 @@ ggplot() +
   coord_sf()+
   labs(title="Delayed Time in Station, October, 2019")+
   facet_grid(~status)+
-  mapTheme()
+  mapTheme()+
+  theme_minimal()
+```
+
+## Operation Effects
+In addition to the influence of the temporal and spatial dimensions on the delay time, we also wanted to explore the influence of some external factors as well as the operational factors of the train system on the delay.Looking at the weather conditions in October, the temperatures showed a fluctuating downward trend, while at the precipitation level several large precipitation events were found in the second half of October.
+```{r plot_weather, fig.height=6, fig.width=8,warning=FALSE,warning=FALSE}
+grid.arrange(
+  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#2a9d8f") + 
+  labs(title="Percipitation", x="Hour", y="Perecipitation") + theme_minimal(),
+  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#2a9d8f") + 
+    labs(title="Wind Speed", x="Hour", y="Wind Speed") + theme_minimal(),
+  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#2a9d8f") + 
+    labs(title="Temperature", x="Hour", y="Temperature") + theme_minimal(),
+  top="Weather Data - NJ EWR - Nov, 2019")
+```
+
+For the number of intersections, overall the  delay time decreases as more lines pass through the station, while the direction of the line has no significant effect on the intersection. When we focus on the effect of weather on the delay, we can find that rainy weather will have higher delay time, and as the weather rises the delay time will show a decreasing trend. This result may be explained by the fact that trains travel at lower speeds in rainy weather and that trains take more time to start up in low temperatures. The distance between stations does not have a significant effect on the delay time.
+```{r operation effects,fig.height=5, fig.width=10,message=FALSE,warning=FALSE}
+delay_distance <- merged_dataset %>%
+  group_by(distance)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_intersct <- rbind(
+  merged_dataset %>%
+  group_by(from_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'from')%>%
+  rename(inter = from_inter),
+  merged_dataset %>%
+  group_by(to_inter)%>%
+  summarize(mean_delay = mean(delay_minutes))%>%
+  mutate(status = 'to')%>%
+  rename(inter = to_inter))
+
+delay_rain_week <- merged_dataset %>%
+  mutate(rain = ifelse(Precipitation == 0,'NoRain','Rain'))%>%
+  group_by(rain)%>%
+  summarize(mean_delay = mean(delay_minutes))
+
+delay_temp <- merged_dataset %>%
+  group_by(Temperature)%>%
+  summarize(mean_delay = mean(delay_minutes))
+# just calculate the intersecation delay
+grid.arrange(
+  ggplot(data = delay_intersct, aes(x = inter, y = mean_delay,fill=status)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Delay minutes in each intersection", x = "Num of Intersection", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_rain_week, aes(x = rain, y = mean_delay,fill=rain)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Delay minutes with Rain", x = "Rain", y = "Mean Delay") +
+  theme_minimal(),
+  ggplot(data = delay_distance, aes(x = distance, y = mean_delay)) +
+  geom_line(color = "#2a9d8f") +
+  labs(title = "The relationship between delay and distance", x = "Distance", y = "Value") +
+  geom_smooth(method = "lm", se = TRUE)+
+  theme_minimal(),
+  ggplot(data = delay_temp, aes(x = Temperature, y = mean_delay)) +
+  geom_line(color = "#2a9d8f") +
+  labs(title = "The relationship between delay and temperature", x = "Temperature", y = "Value") +
+  geom_smooth(method = "lm", se = TRUE)+
+  theme_minimal())
 ```
 
 ## Space-time Autocorrelation
-```{r delay analysis combine}
+After the spatial and temporal analysis, We would like to explore more deeply the autocorrelation of space-time with delay time. Looking at the distribution of the average delay time in terms of time and site, we were able to find a delay effect of the average delay time on the site. Therefore, we can draw the inference that the front site on a route will have a lagging effect on the delay time of the back site. And overall, the commuting area around New York has much smaller and more consistent delays, relative to the Atlantic City line.
+```{r delay analysis combine,fig.height=8, fig.width=10,message=FALSE}
 delay_stop_time <- merged_dataset %>%
   group_by(from,to,hour(interval60))%>%
   summarize(mean_delay = mean(delay_minutes))%>%
@@ -442,10 +511,11 @@ ggplot() +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
     labs(title = "Station Delay For One Day in Oct, 2019",
          subtitle = "Hours in a day: {current_frame}") +
-    transition_manual(hour)+ mapTheme()
+    transition_manual(hour)+ mapTheme()+theme_minimal()
 ```
 
-```{r intersect-map}
+And when we want to consider the effect of intersections on delay times, we are able to find that the number of intersections on weekdays does not have a large impact on the degree of delay, except for the New York station which has a smaller delay time. This may be due to the fact that New York station has more passenger throughput resulting in a tighter departure frequency. On weekends, we are able to find that stations that are intersections have lower average delay times. 
+```{r intersect-map,message=FALSE,warning=FALSE}
 delay_intersct_week_f <-merged_dataset %>%
   group_by(from_inter,weekend)%>%
   summarize(mean_delay = mean(delay_minutes))
@@ -458,41 +528,12 @@ ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
     geom_sf(data = inter_stop, aes(size = line_intersct,color = mean_delay)) +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Station Delay For One Day in Oct, 2019",
-         subtitle = "Hours in a day: {current_frame}") +
-    facet_wrap(~weekend)+ mapTheme()
+    labs(title = "Station Delay Intersection Comparison, 2019") +
+    facet_wrap(~weekend)+ mapTheme()+theme_minimal()
 ```
 
-```{r station delay visulaization}
-delay_to_time <- merged_dataset %>%
-  group_by(to,hour(interval60))%>%
-  summarize(mean_delay = mean(delay_minutes))%>%
-  rename(hour = 'hour(interval60)')%>%
-  left_join(stop,by=c('to'='STATION_ID'))%>%
-  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  mutate(status = 'Orientation')%>%
-  rename(station = to)
-
-delay_from_time <- merged_dataset %>%
-  group_by(from,hour(interval60))%>%
-  summarize(mean_delay = mean(delay_minutes))%>%
-  rename(hour = 'hour(interval60)')%>%
-  left_join(stop,by=c('from'='STATION_ID'))%>%
-  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  mutate(status = 'Destination')%>%
-  rename(station = from)
-
-ggplot() +
-    geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = rbind(delay_from_time,delay_to_time), aes(size =mean_delay, color = mean_delay)) +
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Station Delay For One Day in Oct, 2019",
-         subtitle = "Hours in a day: {current_frame}") +
-    facet_wrap(~status)+
-    transition_manual(hour)+ mapTheme()
-```
-
-```{r gif-direction-dow}
+And in addition to exploring the phenomenon of temporal pattern in a day, we also hope to discover temporal patterns over long periods of time. In a weekly dimension, we find that weekday and weekend delays are relatively stable, and the direction of the line does not have a significant spatial effect on the delay. Similarly, when we go to look at the spatial distribution of the average delay time for each week in a month, the variation in delay time is small and very stable.
+```{r gif-direction-dow,message=FALSE}
 delay_to_time <- merged_dataset %>%
   group_by(to,dotw)%>%
   summarize(mean_delay = mean(delay_minutes))%>%
@@ -518,10 +559,9 @@ ggplot() +
     labs(title = "Station Delay For One Week in Oct, 2019",
          subtitle = "Day in a week: {current_frame}") +
     facet_wrap(~status)+
-    transition_manual(Day)+ mapTheme()
+    transition_manual(Day)+ mapTheme()+theme_minimal()
 ```
-
-```{r gif-direction-week}
+```{r gif-direction-week,message=FALSE}
 delay_to_time <- merged_dataset %>%
   group_by(to,week)%>%
   summarize(mean_delay = mean(delay_minutes))%>%
@@ -545,61 +585,19 @@ ggplot() +
     labs(title = "Station Delay For One Month in Oct, 2019",
          subtitle = "Week in a month: {current_frame}") +
     facet_wrap(~status)+
-    transition_manual(week)+ mapTheme()
+    transition_manual(week)+ mapTheme()+theme_minimal()
 ```
 
-## Operation Effects
-```{r operation effects}
-delay_distance <- merged_dataset %>%
-  group_by(distance)%>%
-  summarize(mean_delay = mean(delay_minutes))
-
-delay_intersct <- rbind(
-  merged_dataset %>%
-  group_by(from_inter)%>%
-  summarize(mean_delay = mean(delay_minutes))%>%
-  mutate(status = 'from')%>%
-  rename(inter = from_inter),
-  merged_dataset %>%
-  group_by(to_inter)%>%
-  summarize(mean_delay = mean(delay_minutes))%>%
-  mutate(status = 'to')%>%
-  rename(inter = to_inter))
-
-delay_rain_week <- merged_dataset %>%
-  mutate(rain = ifelse(Precipitation == 0,'NoRain','Rain'))%>%
-  group_by(rain,weekend)%>%
-  summarize(mean_delay = mean(delay_minutes))
-
-delay_temp <- merged_dataset %>%
-  group_by(Temperature)%>%
-  summarize(mean_delay = mean(delay_minutes))
-# just calculate the intersecation delay
-grid.arrange(
-  ggplot(data = delay_intersct, aes(x = inter, y = mean_delay,fill=status)) +
-  geom_col(position = "dodge") +
-  scale_fill_manual(values = palette2) +
-  labs(title = "Delay minutes in each intersection", x = "Num of Line", y = "Mean Delay") +
-  theme_minimal(),
-  ggplot(data = delay_rain_week, aes(x = rain, y = mean_delay,fill=weekend)) +
-  geom_col(position = "dodge") +
-  scale_fill_manual(values = palette2) +
-  labs(title = "Delay minutes with Rain", x = "Rain", y = "Mean Delay") +
-  theme_minimal(),
-  ggplot(data = delay_distance, aes(x = distance, y = mean_delay)) +
-  geom_line(color = "#2a9d8f") +
-  labs(title = "The relationship between delay and distance", x = "Time", y = "Value") +
-  geom_smooth(method = "lm", se = TRUE)+
-  theme_minimal(),
-  ggplot(data = delay_temp, aes(x = Temperature, y = mean_delay)) +
-  geom_line(color = "#2a9d8f") +
-  labs(title = "The relationship between delay and temperature", x = "Temperature", y = "Value") +
-  geom_smooth(method = "lm", se = TRUE)+
-  theme_minimal())
-```
+Overall, the spatial-temporal distribution of delay times is consistent with the findings of the temporal and spatial analyses conducted in the previous At the same time, we found a spatial manifestation of the lag effect of delay times at the site level. This provides us with a choice of new independent variables for the subsequent construction of the predictive model.
 
 ## Lag Effects
-```{r time_lags,include=FALSE}
+Based on the exploratory analysis described above, we found lag effects on delay times at the spatial and temporal levels, so we created temporal lag and spatial lag variables to make predictions in our real-world model. In a practical sense, the temporal lag can be interpreted as the effect of the amount of delay that occurs before a certain time at a passenger's stop on the delay of the schedule he is traveling on. The spatial lag can be interpreted as the effect of the delay of the stop of the passenger's trip before a certain time at his stop on the delay of the stop at which he is traveling.
+
+Because for the USE CASE we want to realize the delay prediction of passengers in the period before boarding, we choose a relatively small time lag of 15 minutes as the unit, so that we can provide more time lag variables to be added in the model the closer the boarding time is to the boarding time. 
+
+### Time Lag
+In terms of the correlation of the time-lagged variables with respect to the delay time, their correlation with the delay time decreases as the lag time increases. However, in general, the correlation of delay time in the same site is overall low.
+```{r time_lagsE,message=FALSE}
 merged_dataset <- merged_dataset %>%
    mutate(interval15 = floor_date(ymd_hms(scheduled_time), unit = "15 mins"))
 
@@ -627,8 +625,7 @@ as.data.frame(merged_dataset) %>%
     group_by(Variable) %>%  
     summarize(correlation = round(cor(Value, delay_minutes),2))
 ```
-### Station Lag
-```{r station_lags,include=FALSE}
+```{r station_lags,fig.height=6, fig.width=10,message=FALSE}
 merged_dataset_station <- 
   merged_dataset %>% 
   arrange(train_id, interval15,stop_sequence) %>% 
@@ -664,10 +661,12 @@ ggplot(plotData.lag_time, aes(Value,delay_minutes))+
   facet_wrap(~Variable, ncol = 4, scales = 'free') +
   labs(title = "Delay minute from previous time as a function of spatial lags",
        subtitle = "One week in Oct, 2019") +
-  mapTheme()
+  mapTheme()+theme_minimal()
 ```
-### Time Lag
-```{r evaluate_station_lags, echo=FALSE, fig.height=4, fig.width=8}
+
+### Station Lag
+As for the correlation of spatial lags, we were able to find that the overall correlation of the lagged variables of the sites for the delay time decreases as the number of lagged sites increases. However, overall, the correlation of spatially lagged variables to delay time is high.
+```{r evaluate_station_lags, echo=FALSE, fig.height=6, fig.width=10,message=FALSE}
 selected_columns <- merged_dataset_station[, c("delay_minutes", "lagsstation", "lags2station", "lags3station", "lags4station", "lags5station", "lags6station","lags7station", "lags8station","week")]
 cor_delay_all_stations <- cor(selected_columns, use = "complete.obs")["delay_minutes", -1]%>%
   as.data.frame()%>%rename(cor_score = '.')
@@ -690,11 +689,14 @@ ggplot(plotData.lag_station, aes(Value,delay_minutes))+
   facet_wrap(~Variable, ncol = 3, scales = 'free') +
   labs(title = "Delay minute from previous stations as a function of spatial lags",
        subtitle = "One week in Oct, 2019") +
-  mapTheme()
+  mapTheme()+theme_minimal()
 ```
 
-##Correlation Matrix
-```{r cor-matrix}
+Overall, at the level of lagged impacts, spatial lagged impacts possess a high correlation for delay times, while temporal lagged impacts do not have a high correlation for delay times.
+
+## Correlation Matrix
+In summary, we found the influence of factors on delay time at the spatial, temporal, operational, and lag effect levels, and we constructed a correlation matrix to visualize the correlation between the factors and the delay time for better screening of effective independent variables for subsequent data modeling. From the matrix, we can find that the spatial lag and time lag variables have more obvious effects on delay time.
+```{r cor-matrix,message=FALSE}
 merged_dataset_station <- merged_dataset_station%>%
   mutate(isbig_from = ifelse(From_city == 'big city',1,0),
          isbig_to = ifelse(To_city == 'big city',1,0),
@@ -705,11 +707,22 @@ cor_matrix <- merged_dataset_station %>%
 
 cor_matrix <- cor(cor_matrix, method = "pearson", use = "complete.obs")
 
-corrplot(cor_matrix)
+corrplot(cor_matrix, method = 'shade', order = 'AOE', diag = FALSE,tl.col = 'black')
 ```
 
 # Data Modeling
-```{r 3_models }
+Based on the above analysis and the use of our application scenarios, we constructed three models, respectively, 30 minutes ago, 60 minutes ago and 90 minutes ago, for different time periods from the expected arrival time to analyze (in the actual use of the model there may be more time periods to carry out a more accurate prediction, in this project in order to reflect the concept of multiple time periods and multiple models to choose the three models to talk about and analyze). The variables corresponding to the models with longer time lags further away from the departure time can only be selected with further time lags and spatial lags to correspond to the available data situation in the actual context. Among the variables used in the model, the following main types are included:
+
+[space relevant variable] -- Line, Intersection, Station, Direction
+
+[time relevant variable] -- Hour, Weekend,
+
+[operation relevant variable] -- Temperature, Precipitation, Wind Speed, Stop Sequence
+
+[temporal/spatial lag variable] -- (based on the different models)
+
+And for model selection, we chose Ordinary Least Squares regression (OLS) model for model construction. The model has many advantages such as easy computation as well as interpretability.
+```{r 3_models,message=FALSE}
 merged_dataset_model <- merged_dataset_station%>%
   filter(line != 'Atl. City Line')%>%
   mutate(hour = hour(interval60))
@@ -717,7 +730,7 @@ delay.Train <- filter(merged_dataset_model, week <= 42)
 delay.Test <- filter(merged_dataset_model, week > 42)
 
 reg.30 <- 
-  lm(delay_minutes ~  hour + weekend + Temperature + Precipitation + Wind_Speed + lag45min 
+  lm(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag45min 
      + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + 
        lag2h45min + lag3h 
      + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, 
@@ -730,12 +743,13 @@ reg.60 <-
 
 reg.90 <- 
   lm(delay_minutes ~  from + to + hour + weekend + Temperature + Precipitation + Wind_Speed
-    + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h + lags5station+lags6station + stop_sequence + line + to_inter + from_inter, 
+    + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h+ lags6station+ stop_sequence + line + to_inter + from_inter, 
      data=delay.Train)
 ```
 
 ## Model Evaluation
-```{r model error}
+From the comparison of predicted and actual delay times, we can see that the closer the model is to the predicted time has a better model predictive ability. Whereas the model has worse predictive ability for very large and very small values.
+```{r model error,fig.height=8, fig.width=10,message=FALSE,warning=FALSE}
 delay.Test_5 <- delay.Test%>%
   mutate(pre_5 = predict(reg.30, newdata = delay.Test),
          abosulte_error = abs(pre_5 - delay_minutes),
@@ -743,7 +757,8 @@ delay.Test_5 <- delay.Test%>%
          sd_AE = sd(abosulte_error,na.rm = TRUE),
          per_error = (pre_5 - delay_minutes)/delay_minutes,
          per_error = ifelse(per_error == Inf,0,per_error),
-         per_error = ifelse(per_error == -Inf,0,per_error))
+         per_error = ifelse(per_error == -Inf,0,per_error))%>%
+  rename(mod_30 = pre_5)
 
 delay.Test_6 <- delay.Test%>%
   mutate(pre_6 = predict(reg.60, newdata = delay.Test),
@@ -752,7 +767,8 @@ delay.Test_6 <- delay.Test%>%
          sd_AE = sd(abosulte_error,na.rm = TRUE),
          per_error = (pre_6 - delay_minutes)/delay_minutes,
          per_error = ifelse(per_error == Inf,0,per_error),
-         per_error = ifelse(per_error == -Inf,0,per_error))
+         per_error = ifelse(per_error == -Inf,0,per_error))%>%
+  rename(mod_60 = pre_6)
 
 delay.Test_7 <- delay.Test%>%
   mutate(pre_7 = predict(reg.90, newdata = delay.Test),
@@ -761,11 +777,12 @@ delay.Test_7 <- delay.Test%>%
          sd_AE = sd(abosulte_error,na.rm = TRUE),
          per_error = (pre_7 - delay_minutes)/delay_minutes,
          per_error = ifelse(per_error == Inf,0,per_error),
-         per_error = ifelse(per_error == -Inf,0,per_error))
+         per_error = ifelse(per_error == -Inf,0,per_error))%>%
+  rename(mod_90 = pre_7)
 
 grid.arrange(
   delay.Test_5%>%
-  dplyr::select(interval60, from, delay_minutes, pre_5) %>%
+  dplyr::select(interval60, from, delay_minutes, mod_30) %>%
   gather(Variable, Value, -interval60, -from) %>%
     group_by(Variable, interval60) %>%
     summarize(Value = mean(Value))%>%
@@ -774,7 +791,7 @@ grid.arrange(
       labs(title = "Predicted/Observed delay time series", subtitle = "30 Minustes-Pre Predict",  x = "Day", y= "Mean Delay") +
      theme_minimal(),
   delay.Test_6%>%
-  dplyr::select(interval60, from, delay_minutes, pre_6) %>%
+  dplyr::select(interval60, from, delay_minutes, mod_60) %>%
   gather(Variable, Value, -interval60, -from) %>%
     group_by(Variable, interval60) %>%
     summarize(Value = mean(Value))%>%
@@ -783,7 +800,7 @@ grid.arrange(
       labs(title = "Predicted/Observed delay time series", subtitle = "60 Minustes-Pre Predict",  x = "Day", y= "Mean Delay") +
      theme_minimal(),
   delay.Test_7%>%
-  dplyr::select(interval60, from, delay_minutes, pre_7) %>%
+  dplyr::select(interval60, from, delay_minutes, mod_90) %>%
   gather(Variable, Value, -interval60, -from) %>%
     group_by(Variable, interval60) %>%
     summarize(Value = mean(Value))%>%
@@ -794,14 +811,14 @@ grid.arrange(
   ncol=1)
 ```
 
-```{r error visualization}
+And when we focus on the spatial generalizability of the model's performance, we are um able to find that all three models show a more even MAE, except for the line from New York to the north. Other than that, we are able to find that the models have larger model errors for stations in and around New York. This phenomenon may stem from the fact that in New York there is a higher frequency of trips and the same station may be affected by the delay time of trips on different lines.
+```{r error visualization,fig.height=6, fig.width=10,message=FALSE}
 temp <- delay.Test_5 %>% 
   group_by(from)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  dplyr::select(from,mean_ae,geometry)%>%
   mutate(mod = '30m-Predict')
 
 temp2 <- delay.Test_6 %>% 
@@ -810,7 +827,6 @@ temp2 <- delay.Test_6 %>%
             mean_pe = mean(per_error))%>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  dplyr::select(from,mean_ae,geometry)%>%
   mutate(mod = '60m-Predict')
 
 temp3 <- delay.Test_7 %>% 
@@ -819,7 +835,6 @@ temp3 <- delay.Test_7 %>%
             mean_pe = mean(per_error))%>%
   left_join(stop,by=c('from'='STATION_ID'))%>%
   st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326)%>%
-  dplyr::select(from,mean_ae,geometry)%>%
   mutate(mod = '90m-Predict')
 
 temp4 <- rbind(temp,temp2)
@@ -827,14 +842,16 @@ temp4 <- rbind(temp4,temp3)
 
 ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp4, aes(color = mean_ae,size = mean_ae)) +
+    geom_sf(data = temp4, aes(color = mean_ae,size = line_intersct)) +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Abosulte Error in Stop Prediction") +
+    labs(title = "MAE Spatial Comparison in 3 Models") +
     facet_wrap(~mod)+
-    mapTheme()
+    mapTheme()+
+  theme_minimal()
 ```
 
-```{r model comparison}
+And in addition to model error assessment in space, we would also like to see if the model performs more universally across time. Overall, the models perform better on weekdays, both in terms of the magnitude of the errors and the stability of the errors. Moreover, both the error of the model and the s d of the error increase with the length of the model prediction. In terms of the comparison between weekdays and weekends, the three models have a smaller error boost on weekdays with the increase of time. In terms of the distribution of errors, the models on weekdays show a generally smaller standard divination. Therefore, we can conclude that the models on weekdays can have a more stable error range.
+```{r model comparison,fig.height=5, fig.width=10,message=FALSE}
 temp2 <- delay.Test_5 %>% 
   group_by(weekend)%>%
   summarise(MAE = mean(abosulte_error,na.rm = TRUE),
@@ -860,17 +877,18 @@ grid.arrange(
   ggplot(temp4, aes(x=mod, y=MAE, colour=mod)) +
     geom_point() +
     facet_wrap(~weekend)+
-      labs(title = "Predicted/Observed delay time series", subtitle = "90 Minustes-Pre Predict",  x = "Day", y= "Mean Delay") +
+      labs(title = "MAE Temporal Comparison",x = "Model", y= "MAE") +
      theme_minimal(),
   ggplot(temp4, aes(x=mod, y=sd_AE, colour=mod)) +
     geom_point() +
     facet_wrap(~weekend)+
-      labs(title = "Predicted/Observed delay time series", subtitle = "90 Minustes-Pre Predict",  x = "Day", y= "Mean Delay") +
+      labs(title = "SD of MAE Temporal Comparison", x = "Model", y= "SD_MAE") +
      theme_minimal()
 )
 ```
 
-```{r error weekend map comparison}
+When we look at the spatial distribution of this modeled performance difference between weekdays and weekends, we are able to find that the line north from New York possesses a smaller weekend and weekday error difference. The spatial difference between weekdays and weekends is primarily seen for lines heading south from New York, with stations on these lines having higher model errors on weekends.The reason this error exists may stem from the fact that on weekends more passengers from cities south of New York (e.g., Philadelphia and Jersey City) commute between New York and their locations for recreational or other purposes, and thus the same frequency in the face of significantly higher traffic may create a greater likelihood of delays.
+```{r error weekend map comparison,fig.height=6, fig.width=10,message=FALSE}
 temp <- delay.Test_6 %>% 
   group_by(from,weekend)%>%
   summarise(mean_ae = mean(abosulte_error),
@@ -882,96 +900,157 @@ ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
     geom_sf(data = temp, aes(color = mean_ae)) +
     scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Abosulte Error Comaprison in Weekend") +
-    facet_wrap(~weekend)+mapTheme()
+    labs(title = "MAE Comaprison in Weekend",subtitle = '60mins Model') +
+    facet_wrap(~weekend) + mapTheme()+
+  theme_minimal()
 ```
 
-```{r line comparison}
+n turn, the model's performance for the line shows more similar characteristics at the spatial level. All of the routes exhibit larger errors as they are pushed farther back in time. Specifically, the lines from New York northward have smaller errors and are less affected by the different time models than the other lines. The Northeast Corridor, on the other hand, has the worst performance of the models that are closest in time. However, as we push farther back in time, the modeled errors show a similar pattern for the other lines.
+```{r line comparison,fig.height=6, fig.width=10,message=FALSE}
 temp <- delay.Test_6 %>% 
   group_by(line)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
-  left_join(line,by=c('line'='LINE_NAME'))
+  left_join(line,by=c('line'='LINE_NAME'))%>%
+  mutate(mod = '60min')
 
 temp2 <- delay.Test_5 %>% 
   group_by(line)%>%
   summarise(mean_ae = mean(abosulte_error),
             mean_pe = mean(per_error))%>%
-  left_join(line,by=c('line'='LINE_NAME'))
+  left_join(line,by=c('line'='LINE_NAME'))%>%
+  mutate(mod = '30min')
 
-grid.arrange(
-  ggplot() +
+temp3 <- delay.Test_7 %>% 
+  group_by(line)%>%
+  summarise(mean_ae = mean(abosulte_error),
+            mean_pe = mean(per_error))%>%
+  left_join(line,by=c('line'='LINE_NAME'))%>%
+  mutate(mod = '90min')
+
+temp4 <- rbind(temp,temp2)
+temp4 <- rbind(temp4,temp3)
+
+ggplot() +
     geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp2,aes(color = mean_ae, geometry = geometry))+
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Abosulte Error in Line")+mapTheme(),
-  ggplot() +
-    geom_sf(data = NJTracts, color = 'grey') + 
-    geom_sf(data = temp,aes(color = mean_ae, geometry = geometry))+
-    scale_colour_viridis(direction = -1,discrete = FALSE, option = "D") +
-    labs(title = "Mean Abosulte Error in Line")+mapTheme(),nrow= 1)
+    geom_sf(data = temp4,aes(color = mean_ae, geometry = geometry))+
+    facet_wrap(~mod)+
+    scale_colour_viridis(direction = -1,discrete = FALSE, option = "A") +
+    labs(title = "Model MAE Comparison in Line",subtitle = '30 mins & 60 mins model') + mapTheme()+
+  theme_minimal()
 ```
 
-```{r over-under-predict}
-grid.arrange( ggplot()+
-  geom_point(data = delay.Test_5,aes(x= delay_minutes, y = pre_5))+
-    geom_smooth(data = delay.Test_5,aes(x= delay_minutes, y= pre_5), method = "lm", se = FALSE, color = "red")+
+In the case of over- or under-forecasting, we find that all three models exhibit under-forecasting, and that the degree of under-forecasting increases as we move farther back in the model's time. Therefore, in the actual model prediction, we can increase the model noise according to the model to increase the accuracy of the model prediction.
+```{r over-under-predict,fig.height=5, fig.width=10,message=FALSE}
+temp <- delay.Test_5%>%
+  dplyr::select(delay_minutes,mod_30,weekend)%>%
+  mutate(mod = '30min')%>%
+  rename(pre = mod_30)
+temp2 <- delay.Test_6%>%
+  dplyr::select(delay_minutes,mod_60,weekend)%>%
+  mutate(mod = '60min')%>%
+  rename(pre = mod_60)
+temp3 <- delay.Test_7%>%
+  dplyr::select(delay_minutes,mod_90,weekend)%>%
+  mutate(mod = '90min')%>%
+  rename(pre = mod_90)
+
+temp4 <- rbind(temp,temp2)
+temp4 <- rbind(temp4,temp3)
+
+ggplot()+
+  geom_point(data = temp4,aes(x= delay_minutes, y = pre),color = "#2a9d8f")+
+    geom_smooth(data = temp4,aes(x= delay_minutes, y= pre), method = "lm", se = FALSE, color = '#f4a261')+
     geom_abline(slope = 1, intercept = 0)+
-  facet_grid(~weekend)+
+  facet_grid(mod~weekend)+
   labs(title="Observed vs Predicted",
+       subtitle = 'model and weekend camparison',
        x="Observed delay minutes", 
        y="Predicted delay minutes")+
-  plotTheme(),
-  ggplot()+
-  geom_point(data = delay.Test_6,aes(x= delay_minutes, y = pre_6))+
-    geom_smooth(data = delay.Test_6,aes(x= delay_minutes, y= pre_6), method = "lm", se = FALSE, color = "red")+
-    geom_abline(slope = 1, intercept = 0)+
-  facet_grid(~weekend)+
-  labs(title="Observed vs Predicted",
-       x="Observed delay minutes", 
-       y="Predicted delay minutes")+
-  plotTheme(),nrow=1)
+  plotTheme()+
+  theme_minimal()
 ```
 
 ## Model Generalizability Evaluation
-```{r cv evaluation}
+In order to better test the model's ability to perform in real-world scenarios, i.e., on new datasets, we evaluate the model's ability using cross-validation.
+```{r cv evaluation,fig.height=5, fig.width=10,message=FALSE}
 fitControl <- trainControl(method = "cv", number = 20)
 set.seed(825)
 
 reg.cv.30 <- 
-  train(delay_minutes ~ hour + weekend + Temperature + Precipitation + Wind_Speed + lag45min + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h 
-+ lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, delay.Train, 
+  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag45min  + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h + lags3station+ lags4station+ lags5station+lags6station+ stop_sequence + line + to_inter + from_inter, merged_dataset_model, 
         method = "lm", trControl = fitControl, na.action = na.pass)
 
 reg.cv.60 <- 
-  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h + lags5station + lags6station + stop_sequence + line + to_inter + from_inter, delay.Train, 
+  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed+ lag1h + lag1h15min + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h + lags5station + lags6station + stop_sequence + line + to_inter + from_inter, merged_dataset_model, 
         method = "lm", trControl = fitControl, na.action = na.pass)
 
 reg.cv.90 <- 
-  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed
-    + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h + lags5station+lags6station + stop_sequence + line + to_inter + from_inter, delay.Train, 
+  train(delay_minutes ~ from + to + hour + weekend + Temperature + Precipitation + Wind_Speed + lag1h30min + lag1h45min + lag2h + lag2h15min + lag2h30min + lag2h45min + lag3h+ lags6station+ stop_sequence + line + to_inter + from_inter, merged_dataset_model, 
         method = "lm", trControl = fitControl, na.action = na.pass)
 ```
 
-```{r mod-genral evaluate}
-dplyr::select(reg.cv$resample, -Resample) %>%
+Looking at the performance of the three models, we can see that the errors of the models show a gradual increase as time is pushed farther away. Regarding the stability of the model error, we can find that the 30-minute model has better stability. And as the time of the model is pushed farther, we can find that the R-square of the model shows a decreasing trend, which indicates that the credibility of the model is also decreasing with the increase of time.
+```{r mod-genral evaluate,fig.height=8, fig.width=10,message=FALSE,warning=FALSE}
+grid.arrange(
+dplyr::select(reg.cv.30$resample, -Resample) %>%
   gather(metric, value) %>%
-  left_join(gather(reg.cv$results[2:4], metric, mean)) %>%
+  left_join(gather(reg.cv.30$results[2:4], metric, mean)) %>%
   ggplot(aes(value)) + 
     geom_histogram(bins=35, fill = "#2a9d8f") +
     facet_wrap(~metric) +
     geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
-    scale_x_continuous(limits = c(0, 4)) +
-    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics(new)",
-         subtitle = "Across-fold mean reprented as dotted lines")
+    scale_x_continuous(limits = c(0, 5)) +
+    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics-30mins Model",
+         subtitle = "Across-fold mean reprented as dotted lines")+
+  theme_minimal(),
+dplyr::select(reg.cv.60$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(reg.cv.60$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+    geom_histogram(bins=35, fill = "#2a9d8f") +
+    facet_wrap(~metric) +
+    geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
+    scale_x_continuous(limits = c(0, 5)) +
+    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics-60mins Model",
+         subtitle = "Across-fold mean reprented as dotted lines")+
+  theme_minimal(),
+dplyr::select(reg.cv.90$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(reg.cv.90$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+    geom_histogram(bins=35, fill = "#2a9d8f") +
+    facet_wrap(~metric) +
+    geom_vline(aes(xintercept = mean), colour = "#e76f51", linetype = 3, size = 1.5) +
+    scale_x_continuous(limits = c(0, 5)) +
+    labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics-90mins Model",
+         subtitle = "Across-fold mean reprented as dotted lines")+
+  theme_minimal(),nrow=3)
 ```
+```{r quantitaive,message=FALSE}
+combined_summary <- bind_rows(
+  reg.cv.30$resample %>%
+    summarise(Model = "30 min Model",
+              MAE = mean(.[,3]),
+              sd = sd(.[,3])),
+  reg.cv.60$resample %>%
+    summarise(Model = "60 min Model",
+              MAE = mean(.[,3]),
+              sd = sd(.[,3])),
+  reg.cv.90$resample %>%
+    summarise(Model = "90 min Model",
+              MAE = mean(.[,3]),
+              sd = sd(.[,3]))
+)
 
-```{r quantitaive}
-reg.cv$resample %>% 
-  summarise(MAE = mean(reg.cv$resample[,3]),
-            sd(reg.cv$resample[,3])
-) %>%
-  kbl(col.name=c('Mean Absolute Error','Standard Deviation of MAE')) %>%
+combined_summary %>%
+  as.data.frame() %>%
+  mutate(Model = factor(Model, levels = c("30 min Model", "60 min Model", "90 min Model"))) %>%
+  kbl(col.names = c('Model', 'Mean Absolute Error', 'Standard Deviation of MAE')) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 ```
+
 # Conclusion
+Overall, we can find that train delays are mainly affected by elements such as time, weather, and lagging delays, which are also very much in line with the actual scenarios in reality. In terms of modeling, overall the model performs better, and in terms of accuracy, the model's MAE familiarization error is around 2-4 minutes, which is an acceptable modeling error for a practical application scenario. And from a generalizability perspective, we can see that the RMSE of the model shows a nearly normal distribution across multiple models, so the performance is better from a pure data perspective. However, from a spatial perspective, the model's errors are more varied across different routes, with the route from New York to the north having a larger error than the other routes. Also in terms of the spatial and temporal distribution, the model has a larger error on weekends than on weekdays, and this difference in error varies from route to route.
+
+Therefore, in order to make the model perform better, on the one hand, the model should be constructed with smaller time intervals (e.g., 10 minutes or even 5 minutes as the modeling interval) in order to obtain more lagged variables to obtain better model accuracy. In terms of model generalizability, the current model does not reflect the characteristics of different routes well, which leads to significant differences in the model performance of stations on different routes. Therefore, in the optimization of the model, more characteristics of the lines should be explored (e.g., physical information such as the year of construction and quality of the track, and station-related service information such as the line capacity of the station) to reduce the line-level errors.

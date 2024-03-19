@@ -1,13 +1,7 @@
 # MUSA508-Delayed-Time-Prediction
 
-11.28 Problem 
+Serving as the second largest commuter rail network in the United State, the NJ Transit spans New Jersey and the state to New York City. However, their delays are getting worse with more office workers returning, on the other hand, there are no interactive apps for commuters that can predict the immediate delays that may happen by chance or fixedly occur on their daily commute routes during the day. As such, they cannot foresee them instantly and mitigate accordingly.
 
-1. The definition of big city have some problem (all city is big city)
-   
-perhaps we need to redefine the scale of the city based on the population distribution.
-
-3. The dataset scale problem
-   
-if we just use one month dataset and we want to create a week lag, there will just late 3 weeks' data have lag, and when we try to split the train and test dataset, perhaps it will not be big enough.
+In our project, we further investigate into the delay performance on NJ transit’s commuter rail routes and come up with some interactive & instant predictive strategies targeted at commuters within NJ Transit Commuter Rail Routes.
 
 

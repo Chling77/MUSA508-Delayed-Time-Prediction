@@ -1,5 +1,5 @@
 # MUSA508-Delayed-Time-Prediction
-youtube link: https://www.youtube.com/watch?v=J7nDjig3dLs&t=2s
+Youtube link: https://www.youtube.com/watch?v=J7nDjig3dLs&t=2s
 
 Ling & Tianxiao
 
